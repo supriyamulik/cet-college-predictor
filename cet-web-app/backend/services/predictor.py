@@ -4,268 +4,317 @@ import numpy as np
 import os
 from typing import List, Dict, Optional
 
+
 class CollegePredictor:
-    def __init__(self):
-        """Initialize and load the trained XGBoost model and data"""
+    """
+    College Predictor with REALISTIC GAP FILTERING
+    - Top colleges: User percentile + (3 to 6) range
+    - Moderate colleges: User percentile ± 2 range
+    - Backup colleges: User percentile - (3 to 10) range
+    """
+
+    def __init__(self,
+                 model_path: str = os.path.join('model', 'xgb_cap_model.pkl'),
+                 data_path: str = os.path.join('data', 'flattened_CAP_data done.xlsx'),
+                 college_list_path: str = os.path.join('data', 'unique_colleges_with_city_CAP1_2025.xlsx')):
         try:
             # Load XGBoost model
-            model_path = os.path.join('model', 'xgb_cap_model.pkl')
-            self.model = joblib.load(model_path)
-            print("✅ XGBoost model loaded successfully!")
+            if os.path.exists(model_path):
+                self.model = joblib.load(model_path)
+                print("✅ XGBoost model loaded successfully!")
+            else:
+                raise FileNotFoundError(f"Model file not found: {model_path}")
+
+            # Load main college dataframe
+            if os.path.exists(data_path):
+                self.college_data = pd.read_excel(data_path)
+                print(f"✅ College data loaded: {len(self.college_data)} records")
+            else:
+                raise FileNotFoundError(f"College data file not found: {data_path}")
+
+            # Load college list
+            if os.path.exists(college_list_path):
+                self.college_list = pd.read_excel(college_list_path)
+                print(f"✅ College list loaded: {len(self.college_list)} colleges")
+            else:
+                self.college_list = pd.DataFrame()
+
+            # Type weight mapping
+            self.type_weight_mapping = {
+                "Government": 1.00,
+                "Autonomous / Government": 0.95,
+                "State Technological University": 0.90,
+                "University Department": 0.85,
+                "Autonomous / Aided": 0.80,
+                "Autonomous / Private": 0.75,
+                "Deemed University": 0.70,
+                "State Private University": 0.65,
+                "Private (Unaided)": 0.60,
+                "Deemed University (Off-Campus)": 0.55
+            }
+
+            self.college_data['Type_Weight'] = self.college_data['type'].map(
+                self.type_weight_mapping
+            ).fillna(0.6)
+
+            # Normalize closing percentile
+            self.min_cutoff = self.college_data['closing_percentile'].min()
+            self.max_cutoff = self.college_data['closing_percentile'].max()
             
-            # Load flattened college data (historical cutoffs)
-            data_path = os.path.join('data', 'flattened_CAP_data done.xlsx')
-            self.college_data = pd.read_excel(data_path)
-            print(f"✅ College data loaded: {len(self.college_data)} records")
-            
-            # Load college list with additional info
-            college_list_path = os.path.join('data', 'unique_colleges_with_city_CAP1_2025.xlsx')
-            self.college_list = pd.read_excel(college_list_path)
-            print(f"✅ College list loaded: {len(self.college_list)} colleges")
-            
-            # YOUR ACTUAL COLUMNS (from image):
-            # college_name, branch_code, branch_name, category, closing_rank, closing_percentile, year, city, type
-            
-            print(f"📊 Columns in college_data: {list(self.college_data.columns)}")
-            
-            # Get unique values for filters
-            self.available_branches = sorted(self.college_data['branch_name'].dropna().unique().tolist())
-            self.available_cities = sorted(self.college_data['city'].dropna().unique().tolist())
-            
-            print(f"🎓 Total branches available: {len(self.available_branches)}")
-            print(f"🏙️ Total cities available: {len(self.available_cities)}")
-            
-            if len(self.available_branches) > 0:
-                print(f"📚 Sample branches: {self.available_branches[:5]}")
-            if len(self.available_cities) > 0:
-                print(f"🌆 Sample cities: {self.available_cities[:5]}")
-            
+            self.college_data['C_normalized'] = (
+                (self.college_data['closing_percentile'] - self.min_cutoff) / 
+                (self.max_cutoff - self.min_cutoff)
+            )
+
+            # Extract unique values
+            self.available_branches = sorted(
+                self.college_data['branch_name'].dropna().unique().tolist()
+            )
+            self.available_cities = sorted(
+                self.college_data['city'].dropna().unique().tolist()
+            )
+            self.available_categories = sorted(
+                self.college_data['category'].dropna().unique().tolist()
+            )
+
+            print(f"🎓 Branches: {len(self.available_branches)}")
+            print(f"🏙️ Cities: {len(self.available_cities)}")
+            print(f"📊 Categories: {len(self.available_categories)}")
+            print(f"📉 Cutoff range: {self.min_cutoff:.2f}% - {self.max_cutoff:.2f}%")
+
         except Exception as e:
-            print(f"❌ Error loading model/data: {e}")
+            print(f"❌ Error initializing predictor: {e}")
             import traceback
             traceback.print_exc()
             raise
-    
-    def get_college_info(self) -> Dict:
-        """Get basic info about loaded data"""
-        return {
-            'total_records': len(self.college_data),
-            'total_colleges': len(self.college_list),
-            'total_branches': len(self.available_branches),
-            'total_cities': len(self.available_cities),
-            'available_branches': self.available_branches[:30],
-            'available_cities': self.available_cities[:30],
-            'columns': list(self.college_data.columns)
-        }
-    
-    def calculate_admission_probability(self, user_percentile: float, cutoff_percentile: float, 
-                                       user_rank: int = None, cutoff_rank: int = None) -> float:
+
+
+    def predict_colleges(self,
+                        rank: int,
+                        percentile: float,
+                        category: str = 'OPEN',
+                        city: Optional[str] = None,
+                        branch: Optional[str] = None,
+                        limit: int = 100) -> List[Dict]:
         """
-        Calculate admission probability based on percentile comparison
-        """
-        try:
-            # Handle NaN/None values
-            if pd.isna(cutoff_percentile) or cutoff_percentile == 0:
-                if user_rank and cutoff_rank and not pd.isna(cutoff_rank) and cutoff_rank > 0:
-                    rank_diff_percent = ((cutoff_rank - user_rank) / cutoff_rank) * 100
-                    if rank_diff_percent > 20:
-                        return 95.0
-                    elif rank_diff_percent > 10:
-                        return 85.0
-                    elif rank_diff_percent > 0:
-                        return 70.0
-                    elif rank_diff_percent > -10:
-                        return 50.0
-                    else:
-                        return 30.0
-                else:
-                    return 50.0
-            
-            # Percentile-based calculation
-            percentile_diff = user_percentile - cutoff_percentile
-            
-            if percentile_diff >= 5:
-                probability = min(100, 95 + (percentile_diff - 5))
-            elif percentile_diff >= 2:
-                probability = 80 + (percentile_diff - 2) * 5
-            elif percentile_diff >= 0:
-                probability = 70 + percentile_diff * 5
-            elif percentile_diff >= -2:
-                probability = 50 + (percentile_diff + 2) * 10
-            elif percentile_diff >= -5:
-                probability = 30 + (percentile_diff + 5) * 6.67
-            else:
-                probability = max(5, 30 + (percentile_diff + 5) * 5)
-            
-            probability = max(0, min(100, probability))
-            return round(probability, 2)
-            
-        except Exception as e:
-            print(f"Error calculating probability: {e}")
-            return 50.0
-    
-    def categorize_college(self, probability: float) -> str:
-        """Categorize college as DREAM, TARGET, or SAFE"""
-        if probability >= 80:
-            return "SAFE"
-        elif probability >= 50:
-            return "TARGET"
-        else:
-            return "DREAM"
-    
-    def get_category_emoji(self, category: str) -> str:
-        """Get emoji for category"""
-        emojis = {
-            "DREAM": "🟠",
-            "TARGET": "🔵",
-            "SAFE": "🟢"
-        }
-        return emojis.get(category, "⚪")
-    
-    def predict_colleges(self, rank: int, percentile: float, category: str, 
-                        city: Optional[str] = None, branch: Optional[str] = None,
-                        limit: int = 50) -> List[Dict]:
-        """
-        Predict eligible colleges based on student profile
+        Predict colleges with REALISTIC GAP FILTERING
         
-        YOUR DATA COLUMNS:
-        - college_name
-        - branch_code  
-        - branch_name
-        - category (OPEN, OBC, GOPEN, GOPENS, etc.)
-        - closing_rank
-        - closing_percentile
-        - year (2025)
-        - city
-        - type (Government, etc.)
+        LOGIC:
+        1. Filter colleges by percentile ranges:
+           - Top: user_percentile + 3 to + 6
+           - Moderate: user_percentile - 2 to + 2
+           - Backup: user_percentile - 10 to - 3
+        2. Sort by closeness to user percentile
+        3. Within same closeness, sort by college quality (historical cutoff)
         """
         try:
-            df = self.college_data.copy()
-            
-            print(f"\n🔍 Starting prediction with {len(df)} records")
-            print(f"📊 Input: Rank={rank}, Percentile={percentile}, Category={category}")
-            
-            # Filter by category
-            # Your categories: GOPENS, GOPEN, GOBC, etc.
-            # User input: OPEN, OBC, SC, ST
-            
-            # Map user category to your data format
-            if category.upper() == 'OPEN':
-                # Match OPEN, GOPEN, GOPENS, etc.
-                df = df[df['category'].str.contains('OPEN', case=False, na=False)]
-            elif category.upper() == 'OBC':
-                df = df[df['category'].str.contains('OBC', case=False, na=False)]
-            elif category.upper() == 'SC':
-                df = df[df['category'].str.contains('SC', case=False, na=False)]
-            elif category.upper() == 'ST':
-                df = df[df['category'].str.contains('ST', case=False, na=False)]
-            elif category.upper() == 'EWS':
-                df = df[df['category'].str.contains('EWS', case=False, na=False)]
-            elif category.upper() == 'TFWS':
-                df = df[df['category'].str.contains('TFWS', case=False, na=False)]
-            else:
-                # Exact match
-                df = df[df['category'].str.upper() == category.upper()]
-            
-            print(f"✅ After category filter ({category}): {len(df)} records")
-            
-            # Filter by city if provided
+            print(f"\n{'='*60}")
+            print(f"🎯 PREDICTION WITH GAP FILTERING")
+            print(f"{'='*60}")
+            print(f"Percentile: {percentile}% | Rank: {rank} | Category: {category}")
+            print(f"City: {city or 'All'} | Branch: {branch or 'All'}")
+            print(f"{'='*60}\n")
+
+            # Start with full dataset
+            filtered_df = self.college_data.copy()
+
+            # === APPLY FILTERS ===
+            if category:
+                category_upper = category.strip().upper()
+                filtered_df = filtered_df[
+                    filtered_df['category'].str.contains(category_upper, case=False, na=False)
+                ]
+                print(f"✅ After category filter: {len(filtered_df)} records")
+
             if city:
-                df = df[df['city'].str.contains(city, case=False, na=False)]
-                print(f"✅ After city filter ({city}): {len(df)} records")
-            
-            # Filter by branch if provided
+                filtered_df = filtered_df[
+                    filtered_df['city'].str.contains(city, case=False, na=False)
+                ]
+                print(f"✅ After city filter: {len(filtered_df)} records")
+
             if branch:
-                df = df[df['branch_name'].str.contains(branch, case=False, na=False)]
-                print(f"✅ After branch filter ({branch}): {len(df)} records")
+                filtered_df = filtered_df[
+                    filtered_df['branch_name'].str.contains(branch, case=False, na=False)
+                ]
+                print(f"✅ After branch filter: {len(filtered_df)} records")
+
+            if filtered_df.empty:
+                print("⚠️ No colleges found. Showing overall recommendations.")
+                filtered_df = self.college_data.copy()
+
+            # === ML PREDICTION ===
+            X_test = filtered_df[['C_normalized', 'Type_Weight']]
+            filtered_df['Predicted_Percentile'] = self.model.predict(X_test)
+
+            # Normalize predictions
+            pred_min = filtered_df['Predicted_Percentile'].min()
+            pred_max = filtered_df['Predicted_Percentile'].max()
             
-            if len(df) == 0:
-                print("⚠️ No colleges found matching filters")
-                return []
+            if pred_max > pred_min:
+                filtered_df['Predicted_Percentile'] = (
+                    (filtered_df['Predicted_Percentile'] - pred_min) / 
+                    (pred_max - pred_min)
+                ) * 100
+            else:
+                filtered_df['Predicted_Percentile'] = 50.0
+
+            # === CALCULATE GAP ===
+            filtered_df['percentile_gap'] = percentile - filtered_df['Predicted_Percentile']
+
+            # === APPLY REALISTIC GAP FILTERING ===
+            # Top colleges: +3 to +6 range (slightly higher than user)
+            # Moderate: -2 to +2 range (around user's level)
+            # Backup: -10 to -3 range (below user's level)
             
-            # Calculate admission probabilities
+            print(f"\n🎯 APPLYING GAP FILTER:")
+            print(f"   Top Colleges: {percentile + 3}% to {percentile + 6}% range")
+            print(f"   Moderate: {percentile - 2}% to {percentile + 2}% range")
+            print(f"   Backup: {percentile - 10}% to {percentile - 3}% range")
+            
+            # Filter based on realistic ranges
+            realistic_df = filtered_df[
+                # Top colleges (aspirational but realistic)
+                ((filtered_df['Predicted_Percentile'] >= percentile + 3) & 
+                 (filtered_df['Predicted_Percentile'] <= percentile + 6)) |
+                # Moderate colleges (perfect match)
+                ((filtered_df['Predicted_Percentile'] >= percentile - 2) & 
+                 (filtered_df['Predicted_Percentile'] <= percentile + 2)) |
+                # Backup colleges (safety net)
+                ((filtered_df['Predicted_Percentile'] >= percentile - 10) & 
+                 (filtered_df['Predicted_Percentile'] <= percentile - 3))
+            ].copy()
+
+            print(f"\n✅ After gap filtering: {len(realistic_df)} colleges (removed unrealistic matches)")
+
+            if realistic_df.empty:
+                print("⚠️ No colleges in realistic range. Relaxing filter...")
+                # Fallback: allow ±10 range if no colleges found
+                realistic_df = filtered_df[
+                    (filtered_df['Predicted_Percentile'] >= percentile - 10) & 
+                    (filtered_df['Predicted_Percentile'] <= percentile + 10)
+                ].copy()
+                print(f"   Relaxed filter: {len(realistic_df)} colleges")
+
+            # === CALCULATE PROBABILITY BASED ON GAP ===
+            def calculate_probability(gap):
+                # More realistic probability calculation
+                if gap >= 5:      # Way above (top colleges)
+                    return 90.0
+                elif gap >= 3:    # Above (stretch colleges)
+                    return 80.0
+                elif gap >= 0:    # At or slightly above
+                    return 70.0
+                elif gap >= -2:   # Slightly below (moderate)
+                    return 60.0
+                elif gap >= -5:   # Below (backup)
+                    return 50.0
+                else:             # Well below (safety)
+                    return 40.0
+
+            realistic_df['admission_probability'] = realistic_df['percentile_gap'].apply(
+                calculate_probability
+            )
+
+            # === CATEGORIZE ===
+            def categorize(prob):
+                if prob >= 70:
+                    return "HIGH"
+                elif prob >= 50:
+                    return "MODERATE"
+                else:
+                    return "BACKUP"
+
+            realistic_df['category_tag'] = realistic_df['admission_probability'].apply(categorize)
+
+            # === CALCULATE CLOSENESS (for sorting) ===
+            realistic_df['closeness'] = abs(percentile - realistic_df['Predicted_Percentile'])
+
+            # === DEDUPLICATE BY COLLEGE (Keep best branch per college) ===
+            realistic_df = realistic_df.sort_values(
+                by=['closeness', 'closing_percentile', 'Type_Weight'],
+                ascending=[True, False, False]
+            )
+            
+            recommendations = realistic_df.groupby('college_name', as_index=False).first()
+
+            # === FINAL SORT: Closeness first, then quality ===
+            recommendations = recommendations.sort_values(
+                by=['closeness', 'closing_percentile', 'Type_Weight'],
+                ascending=[True, False, False]
+            )
+
+            print(f"\n📊 FILTERED RESULTS:")
+            high_prob = recommendations[recommendations['admission_probability'] >= 70]
+            mod_prob = recommendations[(recommendations['admission_probability'] >= 50) & 
+                                      (recommendations['admission_probability'] < 70)]
+            low_prob = recommendations[recommendations['admission_probability'] < 50]
+            
+            print(f"✅ HIGH (70%+): {len(high_prob)} colleges")
+            print(f"🔵 MODERATE (50-69%): {len(mod_prob)} colleges")
+            print(f"🟠 BACKUP (<50%): {len(low_prob)} colleges")
+
+            # === BUILD RESULT LIST ===
             results = []
-            
-            for idx, row in df.iterrows():
-                try:
-                    # Get cutoff data from YOUR columns
-                    cutoff_percentile = row.get('closing_percentile', 0)
-                    cutoff_rank = row.get('closing_rank', 0)
+            for idx, (_, row) in enumerate(recommendations.head(limit).iterrows(), 1):
+                result = {
+                    'rank': idx,
+                    'college_name': str(row['college_name']),
+                    'branch': str(row['branch_name']),
+                    'branch_code': str(row.get('branch_code', 'N/A')),
+                    'city': str(row['city']),
+                    'type': str(row['type']),
                     
-                    # Skip if no cutoff data
-                    if pd.isna(cutoff_percentile) or cutoff_percentile == 0:
-                        continue
+                    # ML predictions
+                    'predicted_cutoff': round(float(row['Predicted_Percentile']), 2),
+                    'historical_cutoff': round(float(row['closing_percentile']), 2),
+                    'cutoff_rank': int(row['closing_rank']) if pd.notna(row.get('closing_rank')) else None,
                     
-                    # Calculate probability
-                    probability = self.calculate_admission_probability(
-                        user_percentile=percentile,
-                        cutoff_percentile=cutoff_percentile,
-                        user_rank=rank,
-                        cutoff_rank=cutoff_rank
-                    )
+                    'admission_probability': round(float(row['admission_probability']), 2),
+                    'percentile_gap': round(float(row['percentile_gap']), 2),
+                    'closeness': round(float(row['closeness']), 2),
                     
-                    # Categorize
-                    college_category = self.categorize_college(probability)
+                    # Category
+                    'category': str(row['category_tag']),
+                    'category_emoji': self.get_category_emoji(row['category_tag']),
                     
-                    # Build result object using YOUR column names
-                    result = {
-                        'college_name': row.get('college_name', 'Unknown'),
-                        'branch': row.get('branch_name', 'Unknown'),
-                        'branch_code': row.get('branch_code', 'N/A'),
-                        'city': row.get('city', 'Unknown'),
-                        'type': row.get('type', 'Unknown'),
-                        'admission_probability': probability,
-                        'category': college_category,
-                        'category_emoji': self.get_category_emoji(college_category),
-                        
-                        # Historical data
-                        'cutoff_2024': cutoff_percentile,
-                        'cutoff_rank_2024': cutoff_rank if not pd.isna(cutoff_rank) else 'N/A',
-                        'percentile_gap': round(percentile - cutoff_percentile, 2),
-                        
-                        # Additional info
-                        'quota_category': row.get('category', 'N/A'),
-                        'year': row.get('year', 2025)
-                    }
-                    
-                    results.append(result)
-                    
-                except Exception as e:
-                    print(f"⚠️ Error processing row {idx}: {e}")
-                    continue
-            
-            # Sort by probability (highest first)
-            results.sort(key=lambda x: x['admission_probability'], reverse=True)
-            
-            print(f"✅ Prediction complete: {len(results)} colleges found")
-            
-            if len(results) > 0:
-                print(f"\n🏆 Top 3 Results:")
-                for i, r in enumerate(results[:3], 1):
-                    print(f"{i}. {r['college_name']} - {r['branch']}")
-                    print(f"   Probability: {r['admission_probability']}% | Category: {r['category']}")
-            
-            return results[:limit]
-            
+                    # Metadata
+                    'quota_category': str(row.get('category', 'N/A')),
+                    'round': int(row.get('round', 1)),
+                    'ml_model': 'XGBoost (Gap Filtered)'
+                }
+                results.append(result)
+
+            # Print top 10
+            print(f"\n📋 TOP 10 MATCHES (Closest to {percentile}%):")
+            print(f"{'#':<5}{'College':<40}{'Pred%':<8}{'Gap':<8}{'Prob%'}")
+            print("="*70)
+            for r in results[:10]:
+                college_short = r['college_name'][:38]
+                print(f"{r['rank']:<5}{college_short:<40}{r['predicted_cutoff']:<8.2f}{r['percentile_gap']:<8.2f}{r['admission_probability']:.1f}%")
+
+            print(f"\n✅ Total: {len(results)} realistic matches")
+            print(f"{'='*60}\n")
+
+            return results
+
         except Exception as e:
             print(f"❌ Prediction error: {e}")
             import traceback
             traceback.print_exc()
             return []
-    
-    def predict_multiple_branches(self, rank: int, percentile: float, category: str,
-                                  branches: List[str], city: Optional[str] = None,
-                                  limit: int = 50) -> List[Dict]:
-        """Predict colleges for multiple branches"""
+
+
+    def predict_multiple_branches(self,
+                                  rank: int,
+                                  percentile: float,
+                                  category: str,
+                                  branches: List[str],
+                                  city: Optional[str] = None,
+                                  limit: int = 100) -> List[Dict]:
+        """Predict for multiple branches with gap filtering"""
         all_results = []
         
-        print(f"\n🔄 Predicting for {len(branches)} branches")
-        
         for branch in branches:
-            print(f"\n{'='*50}")
-            print(f"🔍 Predicting for branch: {branch}")
-            print(f"{'='*50}")
-            
             results = self.predict_colleges(
                 rank=rank,
                 percentile=percentile,
@@ -276,104 +325,77 @@ class CollegePredictor:
             )
             all_results.extend(results)
         
-        print(f"\n📊 Total results before deduplication: {len(all_results)}")
-        
-        # Remove duplicates
-        unique_results = []
+        # Deduplicate by branch_code
         seen = set()
-        
-        for result in all_results:
-            key = f"{result['college_name']}_{result['branch']}"
+        unique_results = []
+        for r in all_results:
+            key = r['branch_code']
             if key not in seen:
                 seen.add(key)
-                unique_results.append(result)
+                unique_results.append(r)
         
-        print(f"📊 Total unique results: {len(unique_results)}")
+        # Sort by closeness first, then quality
+        unique_results.sort(key=lambda x: (x['closeness'], -x['historical_cutoff']))
         
-        # Sort by probability
-        unique_results.sort(key=lambda x: x['admission_probability'], reverse=True)
+        # Re-assign ranks
+        for idx, r in enumerate(unique_results, 1):
+            r['rank'] = idx
         
         return unique_results[:limit]
-    
-    def get_branch_suggestions(self, rank: int, percentile: float, category: str,
-                              preferred_branch: str, city: Optional[str] = None) -> List[Dict]:
-        """Suggest alternative branches with better admission chances"""
-        try:
-            preferred_results = self.predict_colleges(rank, percentile, category, city, preferred_branch, limit=10)
-            
-            if not preferred_results:
-                return []
-            
-            avg_prob_preferred = sum(r['admission_probability'] for r in preferred_results) / len(preferred_results)
-            
-            suggestions = []
-            
-            # Common branch alternatives
-            branch_alternatives = {
-                'Computer': ['Information Technology', 'Electronics & Computer', 'Computer Science', 'AI'],
-                'Information Technology': ['Computer', 'Electronics & Computer', 'Computer Science'],
-                'Electronics': ['Electronics & Telecommunication', 'Electronics & Computer', 'EXTC'],
-                'Mechanical': ['Automobile', 'Production', 'Industrial', 'Mechatronics'],
-                'Civil': ['Construction Technology', 'Civil & Environmental'],
-                'Electrical': ['Electronics', 'Instrumentation', 'Power Systems']
-            }
-            
-            alternatives = []
-            for key, alts in branch_alternatives.items():
-                if key.lower() in preferred_branch.lower():
-                    alternatives = alts
-                    break
-            
-            if not alternatives:
-                return []
-            
-            for alt_branch in alternatives:
-                alt_results = self.predict_colleges(rank, percentile, category, city, alt_branch, limit=5)
-                if alt_results:
-                    avg_prob_alt = sum(r['admission_probability'] for r in alt_results) / len(alt_results)
-                    if avg_prob_alt > avg_prob_preferred:
-                        suggestions.append({
-                            'branch': alt_branch,
-                            'average_probability': round(avg_prob_alt, 2),
-                            'improvement': round(avg_prob_alt - avg_prob_preferred, 2),
-                            'top_colleges': [r['college_name'] for r in alt_results[:3]]
-                        })
-            
-            return sorted(suggestions, key=lambda x: x['improvement'], reverse=True)
-            
-        except Exception as e:
-            print(f"❌ Branch suggestion error: {e}")
-            return []
-    
+
+
+    def get_category_emoji(self, category: str) -> str:
+        emojis = {
+            "HIGH": "🟢",
+            "MODERATE": "🔵",
+            "BACKUP": "🟠"
+        }
+        return emojis.get(category, "⚪")
+
+
     def get_statistics(self, predictions: List[Dict]) -> Dict:
-        """Calculate statistics from predictions"""
         if not predictions:
             return {
                 'total': 0,
-                'dream': {'count': 0, 'percentage': 0},
-                'target': {'count': 0, 'percentage': 0},
-                'safe': {'count': 0, 'percentage': 0}
+                'high': {'count': 0, 'percentage': 0},
+                'moderate': {'count': 0, 'percentage': 0},
+                'backup': {'count': 0, 'percentage': 0},
+                'avg_probability': 0
             }
-        
-        dream = [p for p in predictions if p['category'] == 'DREAM']
-        target = [p for p in predictions if p['category'] == 'TARGET']
-        safe = [p for p in predictions if p['category'] == 'SAFE']
+
+        high = [p for p in predictions if p['category'] == 'HIGH']
+        moderate = [p for p in predictions if p['category'] == 'MODERATE']
+        backup = [p for p in predictions if p['category'] == 'BACKUP']
+
+        probabilities = [p['admission_probability'] for p in predictions]
         
         return {
             'total': len(predictions),
-            'dream': {
-                'count': len(dream),
-                'percentage': round(len(dream) / len(predictions) * 100, 1)
+            'high': {
+                'count': len(high),
+                'percentage': round(len(high) / len(predictions) * 100, 1)
             },
-            'target': {
-                'count': len(target),
-                'percentage': round(len(target) / len(predictions) * 100, 1)
+            'moderate': {
+                'count': len(moderate),
+                'percentage': round(len(moderate) / len(predictions) * 100, 1)
             },
-            'safe': {
-                'count': len(safe),
-                'percentage': round(len(safe) / len(predictions) * 100, 1)
+            'backup': {
+                'count': len(backup),
+                'percentage': round(len(backup) / len(predictions) * 100, 1)
             },
-            'avg_probability': round(sum(p['admission_probability'] for p in predictions) / len(predictions), 2),
-            'highest_probability': max(p['admission_probability'] for p in predictions),
-            'lowest_probability': min(p['admission_probability'] for p in predictions)
+            'avg_probability': round(sum(probabilities) / len(probabilities), 2),
+            'highest_probability': max(probabilities),
+            'lowest_probability': min(probabilities)
+        }
+
+
+    def get_college_info(self) -> Dict:
+        return {
+            'total_records': len(self.college_data),
+            'total_colleges': self.college_data['college_name'].nunique(),
+            'total_branches': len(self.available_branches),
+            'total_cities': len(self.available_cities),
+            'available_branches': self.available_branches[:20],
+            'available_cities': self.available_cities[:20],
+            'available_categories': self.available_categories
         }
