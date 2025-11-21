@@ -1,0 +1,56 @@
+1. Load ML Model
+2. Load Dataset
+3. Assign Type Weight 1 0.60 0.70
+4. Normalize Closing Percentile
+	Everything is scaled between 0 → 1 so ML model treats all values fairly.
+---------------------------------------------------------------
+
+5. When User Inputs Data
+
+User enters:
+
+Rank
+Percentile
+Category
+City
+Branch
+Then predict_colleges() starts.
+
+--------------------------------------------------------------
+
+6. Before using ML, the system filters the data:
+
+✔ a) Category Filter
+
+Only rows matching category (e.g., OPEN, NT1, OBC, etc.)
+
+✔ b) City Filter (optional)
+
+If user selects city, only those city colleges.
+
+✔ c) Branch Filter (optional)
+
+Only selected branch (e.g., CS, AI&DS, Civil, etc.)
+
+------------------------------------------------------------
+
+STEP 5: Calculate Gap
+percentile_gap = user_percentile - predicted_percentile
+
+-------------------------------------------------------------
+
+Category Tagging
+
+Based on probability:
+
+Probability	Tag
+≥ 70%	       HIGH 🟢
+50–69%	     MODERATE 🔵
+< 50%	      BACKUP 🟠
+
+closeness = abs(user_percentile - predicted_percentile)
+Smaller closeness = better match.
+----------------------------------------------------------
+
+✔ Your model predicts ONE thing:
+👉 “What percentile is required to get admission in a particular college–branch?”
