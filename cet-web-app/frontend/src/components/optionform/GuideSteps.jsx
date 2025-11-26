@@ -1,386 +1,439 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronLeft, BookOpen, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+// import { useAuthState } from 'react-firebase-hooks/auth';
+// import { auth } from '../config/firebase';
+import { 
+  ArrowLeft, Target, AlertTriangle, CheckCircle, 
+  Clock, Zap, TrendingUp, Shield, BookOpen,
+  ChevronRight, Play, Pause, FastForward
+} from 'lucide-react';
 
-export default function GuideSteps({ onComplete }) {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState([]);
+export default function GuideSteps() {
+  //const [user] = useAuthState(auth);
+  const navigate = useNavigate();
+  const [activeSection, setActiveSection] = useState('strategy');
 
-  // Load progress from localStorage
-  useEffect(() => {
-    const savedProgress = localStorage.getItem('optionFormGuideProgress');
-    if (savedProgress) {
-      const { step, completed } = JSON.parse(savedProgress);
-      setCurrentStep(step);
-      setCompletedSteps(completed);
-    }
-  }, []);
-
-  // Save progress to localStorage
-  const saveProgress = (step, completed) => {
-    localStorage.setItem('optionFormGuideProgress', JSON.stringify({
-      step,
-      completed,
-      lastUpdated: new Date().toISOString()
-    }));
-  };
-
-  const steps = [
-    {
-      id: 'intro',
-      title: 'What is an Option Form?',
-      icon: BookOpen,
-      content: (
-        <div className="space-y-4">
-          <p className="text-gray-700 leading-relaxed">
-            An <strong>Option Form</strong> (also called CAP - Centralized Admission Process) is your prioritized list of college-branch combinations you want to apply to.
-          </p>
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-            <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5" />
-              Why is it important?
-            </h4>
-            <ul className="space-y-2 text-sm text-blue-800">
-              <li className="flex gap-2">
-                <span className="text-blue-600">•</span>
-                <span>The system allots you a seat based on your rank and your option form order</span>
-              </li>
-              <li className="flex gap-2">
-                <span className="text-blue-600">•</span>
-                <span>You can fill up to 150 options (college + branch combinations)</span>
-              </li>
-              <li className="flex gap-2">
-                <span className="text-blue-600">•</span>
-                <span>The order matters - list your dream colleges first!</span>
-              </li>
-            </ul>
-          </div>
-          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-5">
-            <p className="text-sm text-gray-700">
-              <strong>Pro Tip:</strong> Once you're allotted a seat, the system stops checking options below that. So always prioritize carefully!
-            </p>
-          </div>
-        </div>
-      )
-    },
-    {
-      id: 'seat-types',
-      title: 'Understanding Seat Types',
-      icon: BookOpen,
-      content: (
-        <div className="space-y-4">
-          <p className="text-gray-700">
-            Colleges have different <strong>seat categories</strong> based on reservation policies:
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-blue-600 mb-2">GOPEN (General Open)</h4>
-              <p className="text-sm text-gray-600">Open to all candidates. Most competitive.</p>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-green-600 mb-2">TFWS (Tuition Fee Waiver)</h4>
-              <p className="text-sm text-gray-600">Free tuition for eligible students. Income criteria applies.</p>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-purple-600 mb-2">GSCS / GSTS / GOBC</h4>
-              <p className="text-sm text-gray-600">Reserved categories for SC/ST/OBC candidates.</p>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-orange-600 mb-2">GOPENS / LOBCS</h4>
-              <p className="text-sm text-gray-600">Open seats for ladies (gender-specific).</p>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-red-600 mb-2">PWDOPENS / DEFOPENS</h4>
-              <p className="text-sm text-gray-600">Reserved for differently-abled candidates.</p>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h4 className="font-semibold text-indigo-600 mb-2">EWS (Economically Weaker)</h4>
-              <p className="text-sm text-gray-600">10% reservation for economically weaker sections.</p>
-            </div>
-          </div>
-
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-            <p className="text-sm text-yellow-900">
-              <strong>Important:</strong> You can only apply for seat types that match your eligibility. Check your caste/income certificates before filling.
-            </p>
-          </div>
-        </div>
-      )
-    },
-    {
-      id: 'rounds',
-      title: 'CAP Rounds & Freeze/Float',
-      icon: BookOpen,
-      content: (
-        <div className="space-y-4">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl p-5">
-            <h4 className="font-bold text-lg mb-3">📅 CAP has 3 rounds of allotment</h4>
-            <div className="space-y-2 text-sm">
-              <p><strong>Round 1:</strong> First allotment based on your option form</p>
-              <p><strong>Round 2:</strong> If you "float", you may get upgraded to a better option</p>
-              <p><strong>Round 3:</strong> Final round for remaining seats</p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="border-l-4 border-green-500 bg-green-50 p-4 rounded-r-xl">
-              <h5 className="font-semibold text-green-900 mb-2">✅ FREEZE</h5>
-              <p className="text-sm text-green-800">
-                Accept the allotted seat and exit CAP. You won't participate in future rounds. Choose this if you're satisfied with your allotment.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded-r-xl">
-              <h5 className="font-semibold text-blue-900 mb-2">🔄 FLOAT</h5>
-              <p className="text-sm text-blue-800">
-                Accept the seat BUT remain in CAP for better options. If you get upgraded, great! If not, you keep this seat.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-xl">
-              <h5 className="font-semibold text-red-900 mb-2">❌ REJECT</h5>
-              <p className="text-sm text-red-800">
-                Reject the seat and wait for next round. <strong>Risky!</strong> You might not get any seat later.
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-            <p className="text-sm text-purple-900">
-              <strong>Strategy:</strong> Most students choose "Float" in Round 1 to see if they get upgraded in Round 2.
-            </p>
-          </div>
-        </div>
-      )
-    },
+  const strategySections = [
     {
       id: 'strategy',
-      title: 'Filling Strategy',
-      icon: BookOpen,
-      content: (
-        <div className="space-y-4">
-          <p className="text-gray-700">
-            How you order your options determines your success. Here are <strong>3 proven strategies</strong>:
-          </p>
-
-          <div className="space-y-3">
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
-              <h4 className="font-bold text-green-900 mb-3 flex items-center gap-2">
-                🎯 Safety-First Strategy (Conservative)
-              </h4>
-              <p className="text-sm text-green-800 mb-3">Best for students who want guaranteed admission</p>
-              <div className="space-y-2 text-sm text-green-700">
-                <p><strong>70% Backup colleges</strong> - Colleges where your percentile is well above cutoff</p>
-                <p><strong>20% Moderate colleges</strong> - Colleges matching your percentile</p>
-                <p><strong>10% Dream colleges</strong> - Stretch goals</p>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5">
-              <h4 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
-                ⚖️ Balanced Strategy (Recommended)
-              </h4>
-              <p className="text-sm text-blue-800 mb-3">Best for most students - balanced risk/reward</p>
-              <div className="space-y-2 text-sm text-blue-700">
-                <p><strong>15% Dream colleges</strong> - Top stretch goals</p>
-                <p><strong>50% Moderate colleges</strong> - Perfect matches</p>
-                <p><strong>35% Backup colleges</strong> - Safety net</p>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-5">
-              <h4 className="font-bold text-orange-900 mb-3 flex items-center gap-2">
-                🚀 Ambitious Strategy (Aggressive)
-              </h4>
-              <p className="text-sm text-orange-800 mb-3">For students willing to take calculated risks</p>
-              <div className="space-y-2 text-sm text-orange-700">
-                <p><strong>40% Dream colleges</strong> - Aim high!</p>
-                <p><strong>40% Moderate colleges</strong> - Realistic options</p>
-                <p><strong>20% Backup colleges</strong> - Minimum safety</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-            <p className="text-sm text-yellow-900">
-              <strong>Remember:</strong> You can always adjust your strategy based on Round 1 results before Round 2!
-            </p>
-          </div>
-        </div>
-      )
+      title: '🎯 CAP Strategy Framework',
+      icon: Target,
+      content: {
+        intro: 'The 3-Tier Approach to maximize your admission chances',
+        tiers: [
+          {
+            name: 'TIER 1: Dream Colleges (20-30 options)',
+            description: 'Your aspirational choices - slightly above your percentile range',
+            color: 'red',
+            examples: ['COEP Computer', 'PICT IT', 'VJTI Electronics'],
+            tips: [
+              'Include colleges where cutoff is 2-5% above your percentile',
+              'Focus on premium locations and top-ranked institutes',
+              'Perfect for "what if" scenarios in later rounds'
+            ]
+          },
+          {
+            name: 'TIER 2: Perfect Match (60-80 options)',
+            description: 'Colleges perfectly aligned with your percentile range',
+            color: 'blue',
+            examples: ['DYPIT Computer', 'JSPM Mechanical', 'MMCOE Electronics'],
+            tips: [
+              'These should form the core of your option form',
+              'Include multiple branches from same colleges',
+              'Balance between location preference and college quality'
+            ]
+          },
+          {
+            name: 'TIER 3: Safety Net (40-50 options)',
+            description: 'Secure backups ensuring you get admission somewhere',
+            color: 'green',
+            examples: ['Local private colleges', 'Newer institutes', 'Less competitive branches'],
+            tips: [
+              'Crucial for Round 3 and spot rounds',
+              'Include colleges 5-10% below your percentile',
+              'Don\'t skip this - it\'s your admission insurance'
+            ]
+          }
+        ]
+      }
+    },
+    {
+      id: 'timeline',
+      title: '⏰ CAP Timeline & Rounds',
+      icon: Clock,
+      content: {
+        phases: [
+          {
+            stage: 'ROUND 1',
+            duration: '3-4 days',
+            focus: 'Dream colleges + Strategic positioning',
+            action: 'Freeze if you get Tier 1, otherwise Float',
+            warning: 'Never freeze in Round 1 unless absolutely sure'
+          },
+          {
+            stage: 'ROUND 2',
+            duration: '2-3 days',
+            focus: 'Perfect match colleges + Revised strategy',
+            action: 'Re-evaluate based on Round 1 cutoffs',
+            warning: 'This is where most students get their final allotment'
+          },
+          {
+            stage: 'ROUND 3+',
+            duration: '1-2 days each',
+            focus: 'Safety net + Remaining options',
+            action: 'Freeze when you get acceptable college',
+            warning: 'Don\'t wait too long - seats fill quickly'
+          }
+        ]
+      }
     },
     {
       id: 'mistakes',
-      title: 'Common Mistakes to Avoid',
-      icon: AlertCircle,
-      content: (
-        <div className="space-y-4">
-          <p className="text-gray-700 mb-4">
-            Learn from others' mistakes! Here are the <strong>top 5 errors</strong> students make:
-          </p>
-
-          <div className="space-y-3">
-            {[
-              {
-                title: '❌ Filling only dream colleges',
-                description: 'If your rank doesn\'t match, you get NOTHING. Always add backup options.',
-                color: 'red'
-              },
-              {
-                title: '❌ Ignoring branch preferences',
-                description: 'Don\'t just chase college names. A good branch at a decent college > Poor branch at top college.',
-                color: 'orange'
-              },
-              {
-                title: '❌ Not checking eligibility',
-                description: 'Filling TFWS/EWS without valid certificates wastes your options.',
-                color: 'yellow'
-              },
-              {
-                title: '❌ Random ordering',
-                description: 'The order matters! Don\'t randomly shuffle - prioritize strategically.',
-                color: 'purple'
-              },
-              {
-                title: '❌ Forgetting to submit',
-                description: 'Fill AND submit before deadline. Draft saves don\'t count!',
-                color: 'pink'
-              }
-            ].map((mistake, idx) => (
-              <div key={idx} className={`bg-${mistake.color}-50 border border-${mistake.color}-200 rounded-xl p-4`}>
-                <h5 className={`font-semibold text-${mistake.color}-900 mb-2`}>{mistake.title}</h5>
-                <p className={`text-sm text-${mistake.color}-800`}>{mistake.description}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
-            <h4 className="font-bold text-green-900 mb-2">✅ Pro Checklist</h4>
-            <ul className="space-y-1 text-sm text-green-800">
-              <li>✓ Verified all eligibility documents</li>
-              <li>✓ Filled 100+ options (use all 150 slots)</li>
-              <li>✓ Mixed dream, moderate, and backup colleges</li>
-              <li>✓ Double-checked college codes before submission</li>
-              <li>✓ Taken screenshots of final form</li>
-            </ul>
-          </div>
-        </div>
-      )
+      title: '🚫 Common Fatal Mistakes',
+      icon: AlertTriangle,
+      content: {
+        mistakes: [
+          {
+            mistake: 'Not using all 150 choices',
+            impact: 'Reduces admission chances significantly',
+            solution: 'Fill all slots strategically across tiers'
+          },
+          {
+            mistake: 'Wrong priority order',
+            impact: 'Might miss better college in same round',
+            solution: 'Always prioritize college > branch > location'
+          },
+          {
+            mistake: 'Freezing too early',
+            impact: 'Missing better options in later rounds',
+            solution: 'Use Float option until you get satisfactory college'
+          },
+          {
+            mistake: 'Ignoring location preferences',
+            impact: 'Might get stuck with inconvenient location',
+            solution: 'Create location-wise clusters in your form'
+          }
+        ]
+      }
+    },
+    {
+      id: 'advanced',
+      title: '⚡ Advanced Tactics',
+      icon: Zap,
+      content: {
+        tactics: [
+          {
+            title: 'Branch vs College Priority',
+            description: 'Always prioritize college reputation over branch preference for better career opportunities',
+            example: 'COEP Mechanical > Private College Computer'
+          },
+          {
+            title: 'The 20-60-70 Rule',
+            description: 'Fill first 20 with dreams, next 60 with perfect matches, last 70 with safety nets',
+            example: 'Creates optimal distribution across tiers'
+          },
+          {
+            title: 'Location Clustering',
+            description: 'Group colleges by city to manage reporting and travel',
+            example: 'All Pune colleges together, then Mumbai, etc.'
+          }
+        ]
+      }
     }
   ];
 
-  const handleNext = () => {
-    if (currentStep < steps.length - 1) {
-      const newStep = currentStep + 1;
-      const newCompleted = [...new Set([...completedSteps, currentStep])];
-      setCurrentStep(newStep);
-      setCompletedSteps(newCompleted);
-      saveProgress(newStep, newCompleted);
-    } else {
-      // Mark guide as completed
-      localStorage.setItem('optionFormGuideCompleted', 'true');
-      onComplete?.();
-    }
+  const startBuilding = () => {
+    navigate('/builder/form');
   };
 
-  const handleBack = () => {
-    if (currentStep > 0) {
-      const newStep = currentStep - 1;
-      setCurrentStep(newStep);
-      saveProgress(newStep, completedSteps);
-    }
+  const goToPredictor = () => {
+    navigate('/predictor');
   };
-
-  const goToStep = (stepIndex) => {
-    setCurrentStep(stepIndex);
-    saveProgress(stepIndex, completedSteps);
-  };
-
-  const currentStepData = steps[currentStep];
-  const StepIcon = currentStepData.icon;
-  const progress = ((currentStep + 1) / steps.length) * 100;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white/90 backdrop-blur-xl rounded-2xl border border-gray-200/50 p-6 shadow-xl mb-6">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
-              <StepIcon className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h1>
-              <p className="text-sm text-gray-600">Step {currentStep + 1} of {steps.length}</p>
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          {/* Step Indicators */}
-          <div className="flex justify-between mt-4">
-            {steps.map((step, idx) => (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
               <button
-                key={step.id}
-                onClick={() => goToStep(idx)}
-                className={`flex flex-col items-center gap-1 transition-all ${
-                  idx === currentStep 
-                    ? 'text-blue-600' 
-                    : completedSteps.includes(idx)
-                    ? 'text-green-600'
-                    : 'text-gray-400'
-                }`}
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
               >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                  idx === currentStep
-                    ? 'bg-blue-600 text-white'
-                    : completedSteps.includes(idx)
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-200 text-gray-500'
-                }`}>
-                  {completedSteps.includes(idx) ? <CheckCircle className="w-4 h-4" /> : idx + 1}
-                </div>
-                <span className="text-xs hidden md:block">{step.title.split(' ')[0]}</span>
+                <ArrowLeft className="w-6 h-6 text-gray-600" />
               </button>
-            ))}
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  CAP Option Form Master Guide
+                </h1>
+                <p className="text-sm text-gray-600">Strategic framework for 150 choices</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={goToPredictor}
+                className="px-4 py-2 border-2 border-blue-600 text-blue-600 rounded-xl font-medium hover:bg-blue-50 transition-colors"
+              >
+                Find Colleges
+              </button>
+              <button
+                onClick={startBuilding}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Start Building
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Progress Overview */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+            <div className="p-4 border-2 border-red-200 rounded-xl bg-red-50">
+              <div className="text-2xl font-bold text-red-600">20-30</div>
+              <div className="text-sm text-red-700 font-medium">Dream Colleges</div>
+              <div className="text-xs text-red-600 mt-1">Tier 1</div>
+            </div>
+            <div className="p-4 border-2 border-blue-200 rounded-xl bg-blue-50">
+              <div className="text-2xl font-bold text-blue-600">60-80</div>
+              <div className="text-sm text-blue-700 font-medium">Perfect Match</div>
+              <div className="text-xs text-blue-600 mt-1">Tier 2</div>
+            </div>
+            <div className="p-4 border-2 border-green-200 rounded-xl bg-green-50">
+              <div className="text-2xl font-bold text-green-600">40-50</div>
+              <div className="text-sm text-green-700 font-medium">Safety Net</div>
+              <div className="text-xs text-green-600 mt-1">Tier 3</div>
+            </div>
+            <div className="p-4 border-2 border-purple-200 rounded-xl bg-purple-50">
+              <div className="text-2xl font-bold text-purple-600">150</div>
+              <div className="text-sm text-purple-700 font-medium">Total Options</div>
+              <div className="text-xs text-purple-600 mt-1">Maximum</div>
+            </div>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="bg-white/90 backdrop-blur-xl rounded-2xl border border-gray-200/50 p-8 shadow-xl mb-6">
-          {currentStepData.content}
+        {/* Navigation Tabs */}
+        <div className="flex overflow-x-auto gap-2 mb-8 pb-2">
+          {strategySections.map((section) => (
+            <button
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl font-medium whitespace-nowrap transition-all ${
+                activeSection === section.id
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+              }`}
+            >
+              <section.icon className="w-4 h-4" />
+              {section.title.split(' ')[0]}
+            </button>
+          ))}
         </div>
 
-        {/* Navigation */}
-        <div className="flex justify-between items-center">
-          <button
-            onClick={handleBack}
-            disabled={currentStep === 0}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="w-5 h-5" />
-            Back
-          </button>
-
-          <button
-            onClick={handleNext}
-            className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-blue-500/30 transition-all"
-          >
-            {currentStep === steps.length - 1 ? 'Complete Guide' : 'Next'}
-            <ChevronRight className="w-5 h-5" />
-          </button>
+        {/* Active Section Content */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-200">
+          {activeSection === 'strategy' && <StrategySection data={strategySections[0].content} />}
+          {activeSection === 'timeline' && <TimelineSection data={strategySections[1].content} />}
+          {activeSection === 'mistakes' && <MistakesSection data={strategySections[2].content} />}
+          {activeSection === 'advanced' && <AdvancedSection data={strategySections[3].content} />}
         </div>
+
+        {/* Quick Action Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+          <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
+            <div className="flex items-center gap-3 mb-4">
+              <Play className="w-8 h-8" />
+              <div>
+                <h3 className="text-xl font-bold">Ready to Build?</h3>
+                <p className="text-blue-100">Start creating your optimized option form</p>
+              </div>
+            </div>
+            <button
+              onClick={startBuilding}
+              className="w-full bg-white text-blue-600 py-3 rounded-xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+            >
+              Launch Form Builder
+              <FastForward className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-6 text-white">
+            <div className="flex items-center gap-3 mb-4">
+              <BookOpen className="w-8 h-8" />
+              <div>
+                <h3 className="text-xl font-bold">Need Colleges?</h3>
+                <p className="text-gray-300">Find colleges matching your percentile</p>
+              </div>
+            </div>
+            <button
+              onClick={goToPredictor}
+              className="w-full bg-gray-700 text-white py-3 rounded-xl font-bold hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
+            >
+              Open Predictor
+              <TrendingUp className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// Strategy Section Component
+function StrategySection({ data }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">{data.intro}</h2>
+      <div className="space-y-6">
+        {data.tiers.map((tier, index) => (
+          <div key={index} className="border-2 border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{tier.name}</h3>
+                <p className="text-gray-600">{tier.description}</p>
+              </div>
+              <div className={`px-3 py-1 rounded-full text-sm font-bold ${
+                tier.color === 'red' ? 'bg-red-100 text-red-700' :
+                tier.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                'bg-green-100 text-green-700'
+              }`}>
+                {tier.color === 'red' ? 'ASPIRATIONAL' : 
+                 tier.color === 'blue' ? 'OPTIMAL' : 'SECURE'}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  Examples
+                </h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  {tier.examples.map((example, i) => (
+                    <li key={i}>• {example}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-yellow-600" />
+                  Pro Tips
+                </h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  {tier.tips.map((tip, i) => (
+                    <li key={i}>• {tip}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Timeline Section Component
+function TimelineSection({ data }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">CAP Admission Timeline Strategy</h2>
+      <div className="space-y-4">
+        {data.phases.map((phase, index) => (
+          <div key={index} className="border-l-4 border-blue-500 pl-6 py-4 bg-blue-50 rounded-r-xl">
+            <div className="flex items-center gap-4 mb-2">
+              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">
+                {index + 1}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{phase.stage}</h3>
+                <p className="text-sm text-gray-600">{phase.duration}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">Primary Focus:</p>
+                <p className="text-gray-600">{phase.focus}</p>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">Recommended Action:</p>
+                <p className="text-gray-600">{phase.action}</p>
+              </div>
+            </div>
+            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                <span className="font-semibold text-yellow-800">Warning:</span>
+              </div>
+              <p className="text-sm text-yellow-700 mt-1">{phase.warning}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Mistakes Section Component
+function MistakesSection({ data }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Avoid These Critical Mistakes</h2>
+      <div className="space-y-4">
+        {data.mistakes.map((mistake, index) => (
+          <div key={index} className="border-2 border-red-200 rounded-xl p-5 bg-red-50 hover:shadow-md transition-shadow">
+            <div className="flex items-start gap-4">
+              <div className="w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">
+                ⚠️
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-red-900 mb-2">{mistake.mistake}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="font-semibold text-gray-900 mb-1">Impact:</p>
+                    <p className="text-gray-600">{mistake.impact}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 mb-1">Solution:</p>
+                    <p className="text-gray-600">{mistake.solution}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Advanced Section Component
+function AdvancedSection({ data }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Advanced CAP Strategies</h2>
+      <div className="space-y-6">
+        {data.tactics.map((tactic, index) => (
+          <div key={index} className="border-2 border-purple-200 rounded-xl p-6 bg-purple-50 hover:shadow-md transition-shadow">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 bg-purple-600 text-white rounded-xl flex items-center justify-center font-bold flex-shrink-0">
+                {index + 1}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-purple-900 mb-2">{tactic.title}</h3>
+                <p className="text-gray-700 mb-3">{tactic.description}</p>
+                <div className="p-3 bg-white rounded-lg border border-purple-200">
+                  <p className="text-sm font-semibold text-purple-800 mb-1">Example:</p>
+                  <p className="text-purple-700">{tactic.example}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

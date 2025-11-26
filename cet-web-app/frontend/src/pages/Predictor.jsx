@@ -4,7 +4,8 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../config/firebase';
 import toast from 'react-hot-toast';
 import { 
-  ArrowLeft, Search, Plus, CheckCircle, Award, Target, Shield, User, GraduationCap
+  ArrowLeft, Search, Plus, CheckCircle, Award, Target, Shield, 
+  User, GraduationCap, List, Filter, Download, Upload
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000';
@@ -17,6 +18,7 @@ export default function Predictor() {
   const [predictions, setPredictions] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [optionForm, setOptionForm] = useState([]);
+  const [addCategory, setAddCategory] = useState('HIGH');
 
   const [formData, setFormData] = useState({
     rank: '',
@@ -102,13 +104,49 @@ export default function Predictor() {
     (p.city || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const addToOptionForm = (college) => {
+  // Enhanced add function with category
+  const addToOptionForm = (college, category = addCategory) => {
     if (!optionForm.find(c => c.branch_code === college.branch_code)) {
-      setOptionForm([...optionForm, { ...college, priority: optionForm.length + 1 }]);
-      toast.success('Added to Option Form!');
+      setOptionForm([...optionForm, { 
+        ...college, 
+        priority: optionForm.length + 1,
+        user_category: category,
+        added_at: new Date().toISOString()
+      }]);
+      toast.success(`Added to ${getCategoryLabel(category)} Priority!`);
     } else {
       toast.error('Already in Option Form');
     }
+  };
+
+  // Bulk add functions
+  const addAllToCategory = (colleges, category) => {
+    const newColleges = colleges.filter(
+      college => !optionForm.find(c => c.branch_code === college.branch_code)
+    );
+    const enhancedColleges = newColleges.map((college, index) => ({
+      ...college,
+      priority: optionForm.length + index + 1,
+      user_category: category,
+      added_at: new Date().toISOString()
+    }));
+    setOptionForm([...optionForm, ...enhancedColleges]);
+    toast.success(`Added ${newColleges.length} colleges to ${getCategoryLabel(category)} Priority`);
+  };
+
+  const getCategoryLabel = (category) => {
+    const labels = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
+    return labels[category] || category;
+  };
+
+  const navigateToOptionForm = () => {
+    if (optionForm.length === 0) {
+      toast.error('Please add some colleges to your option form first');
+      return;
+    }
+    // Save current option form to localStorage or context
+    localStorage.setItem('currentOptionForm', JSON.stringify(optionForm));
+    navigate('/builder/form');
   };
 
   // Group by category
@@ -133,10 +171,57 @@ export default function Predictor() {
               </h1>
               <p className="text-sm text-gray-600">Find the best colleges matching your CET performance</p>
             </div>
+            
             {step === 2 && (
-              <div className="text-right bg-blue-50 px-4 py-2 rounded-lg">
-                <p className="text-xs text-gray-600">Option Form</p>
-                <p className="text-xl font-bold text-blue-600">{optionForm.length}/150</p>
+              <div className="flex items-center gap-4">
+                {/* Category Selector */}
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-600 mb-1">Add as:</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setAddCategory('HIGH')}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                        addCategory === 'HIGH' 
+                          ? 'bg-red-100 text-red-700 border border-red-300 shadow-sm' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      ⭐ High
+                    </button>
+                    <button
+                      onClick={() => setAddCategory('MEDIUM')}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                        addCategory === 'MEDIUM' 
+                          ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 shadow-sm' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      ✅ Medium
+                    </button>
+                    <button
+                      onClick={() => setAddCategory('LOW')}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                        addCategory === 'LOW' 
+                          ? 'bg-green-100 text-green-700 border border-green-300 shadow-sm' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      🛡️ Low
+                    </button>
+                  </div>
+                </div>
+
+                {/* Option Form Counter with Navigation */}
+                <button
+                  onClick={navigateToOptionForm}
+                  className="text-right bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors group"
+                >
+                  <p className="text-xs text-gray-600 group-hover:text-blue-600">Option Form</p>
+                  <p className="text-xl font-bold text-blue-600 group-hover:text-blue-700 flex items-center gap-1">
+                    {optionForm.length}/150 
+                    <List className="w-4 h-4" />
+                  </p>
+                </button>
               </div>
             )}
           </div>
@@ -162,6 +247,7 @@ export default function Predictor() {
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             addToOptionForm={addToOptionForm}
+            addAllToCategory={addAllToCategory}
             optionForm={optionForm}
             formData={formData}
             totalPredictions={filteredPredictions.length}
@@ -313,6 +399,7 @@ function ResultsSection({
   searchQuery, 
   setSearchQuery, 
   addToOptionForm,
+  addAllToCategory,
   optionForm,
   formData,
   totalPredictions
@@ -366,71 +453,38 @@ function ResultsSection({
       <div className="bg-white rounded-2xl shadow-lg p-6">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Your College Matches: {totalPredictions} Colleges</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button
-            onClick={() => scrollToSection(topChoicesRef)}
-            disabled={highChance.length === 0}
-            className={`bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-5 text-left transition-all ${
-              highChance.length > 0 
-                ? 'hover:shadow-lg hover:scale-105 cursor-pointer' 
-                : 'opacity-50 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Award className="w-6 h-6 text-green-600" />
-              </div>
-              <span className="font-bold text-green-900">Top Choices</span>
-            </div>
-            <p className="text-4xl font-bold text-green-600 mb-1">{highChance.length}</p>
-            <p className="text-sm text-green-700">Best colleges within reach</p>
-            {highChance.length > 0 && (
-              <p className="text-xs text-green-600 mt-2 font-semibold">Click to view →</p>
-            )}
-          </button>
+          <CategorySummaryCard
+            title="Top Choices"
+            subtitle="Premium colleges that match your profile"
+            icon={<Award className="w-6 h-6 text-green-600" />}
+            colleges={highChance}
+            color="green"
+            onScroll={() => scrollToSection(topChoicesRef)}
+            onAddAll={() => addAllToCategory(highChance, 'HIGH')}
+            optionForm={optionForm}
+          />
           
-          <button
-            onClick={() => scrollToSection(perfectMatchRef)}
-            disabled={moderateChance.length === 0}
-            className={`bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5 text-left transition-all ${
-              moderateChance.length > 0 
-                ? 'hover:shadow-lg hover:scale-105 cursor-pointer' 
-                : 'opacity-50 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Target className="w-6 h-6 text-blue-600" />
-              </div>
-              <span className="font-bold text-blue-900">Perfect Match</span>
-            </div>
-            <p className="text-4xl font-bold text-blue-600 mb-1">{moderateChance.length}</p>
-            <p className="text-sm text-blue-700">Ideal options for you</p>
-            {moderateChance.length > 0 && (
-              <p className="text-xs text-blue-600 mt-2 font-semibold">Click to view →</p>
-            )}
-          </button>
+          <CategorySummaryCard
+            title="Perfect Match"
+            subtitle="Colleges ideally suited for your percentile"
+            icon={<Target className="w-6 h-6 text-blue-600" />}
+            colleges={moderateChance}
+            color="blue"
+            onScroll={() => scrollToSection(perfectMatchRef)}
+            onAddAll={() => addAllToCategory(moderateChance, 'MEDIUM')}
+            optionForm={optionForm}
+          />
           
-          <button
-            onClick={() => scrollToSection(safeOptionsRef)}
-            disabled={backupOptions.length === 0}
-            className={`bg-gradient-to-br from-orange-50 to-amber-50 border-2 border-orange-200 rounded-xl p-5 text-left transition-all ${
-              backupOptions.length > 0 
-                ? 'hover:shadow-lg hover:scale-105 cursor-pointer' 
-                : 'opacity-50 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Shield className="w-6 h-6 text-orange-600" />
-              </div>
-              <span className="font-bold text-orange-900">Safe Options</span>
-            </div>
-            <p className="text-4xl font-bold text-orange-600 mb-1">{backupOptions.length}</p>
-            <p className="text-sm text-orange-700">Secure backup choices</p>
-            {backupOptions.length > 0 && (
-              <p className="text-xs text-orange-600 mt-2 font-semibold">Click to view →</p>
-            )}
-          </button>
+          <CategorySummaryCard
+            title="Safe Options"
+            subtitle="Reliable backup colleges with high admission chances"
+            icon={<Shield className="w-6 h-6 text-orange-600" />}
+            colleges={backupOptions}
+            color="orange"
+            onScroll={() => scrollToSection(safeOptionsRef)}
+            onAddAll={() => addAllToCategory(backupOptions, 'LOW')}
+            optionForm={optionForm}
+          />
         </div>
       </div>
 
@@ -533,6 +587,75 @@ function ResultsSection({
   );
 }
 
+function CategorySummaryCard({ title, subtitle, icon, colleges, color, onScroll, onAddAll, optionForm }) {
+  const colorClasses = {
+    green: {
+      bg: 'bg-gradient-to-br from-green-50 to-emerald-50',
+      border: 'border-green-200',
+      text: 'text-green-900',
+      button: 'bg-green-100 text-green-700 hover:bg-green-200'
+    },
+    blue: {
+      bg: 'bg-gradient-to-br from-blue-50 to-indigo-50',
+      border: 'border-blue-200',
+      text: 'text-blue-900',
+      button: 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+    },
+    orange: {
+      bg: 'bg-gradient-to-br from-orange-50 to-amber-50',
+      border: 'border-orange-200',
+      text: 'text-orange-900',
+      button: 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+    }
+  };
+
+  const colors = colorClasses[color];
+  const availableColleges = colleges.filter(c => !optionForm.find(o => o.branch_code === c.branch_code));
+
+  return (
+    <div className={`${colors.bg} border-2 ${colors.border} rounded-xl p-5 transition-all hover:shadow-lg`}>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="p-2 bg-white rounded-lg shadow-sm">
+          {icon}
+        </div>
+        <div>
+          <h3 className={`font-bold ${colors.text}`}>{title}</h3>
+          <p className={`text-sm ${colors.text} opacity-80`}>{subtitle}</p>
+        </div>
+      </div>
+      
+      <p className="text-4xl font-bold mb-2">{colleges.length}</p>
+      <p className="text-sm opacity-75 mb-4">colleges available</p>
+
+      <div className="space-y-2">
+        <button
+          onClick={onScroll}
+          disabled={colleges.length === 0}
+          className={`w-full py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+            colleges.length > 0 
+              ? 'bg-white hover:shadow-md cursor-pointer' 
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          View Colleges
+        </button>
+        
+        <button
+          onClick={onAddAll}
+          disabled={availableColleges.length === 0}
+          className={`w-full py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+            availableColleges.length > 0 
+              ? `${colors.button} cursor-pointer` 
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          Add All ({availableColleges.length})
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CategorySection({ title, subtitle, icon, colleges, color, addToOptionForm, optionForm }) {
   const colorClasses = {
     green: {
@@ -631,6 +754,15 @@ function CollegeCard({ college, onAdd, isAdded }) {
                 : 'bg-orange-100 text-orange-700'
             }`}>
               {college.closeness <= 2 ? 'Excellent Match' : college.closeness <= 5 ? 'Good Match' : 'Fair Match'}
+            </div>
+            <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
+              college.admission_probability >= 70 
+                ? 'bg-green-100 text-green-700' 
+                : college.admission_probability >= 50 
+                ? 'bg-blue-100 text-blue-700' 
+                : 'bg-orange-100 text-orange-700'
+            }`}>
+              {college.admission_probability}% Chance
             </div>
           </div>
         </div>
