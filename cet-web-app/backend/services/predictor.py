@@ -4,7 +4,6 @@ import numpy as np
 import os
 from typing import List, Dict, Optional
 
-
 class CollegePredictor:
     """
     College Predictor with REALISTIC GAP FILTERING

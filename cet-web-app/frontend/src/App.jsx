@@ -10,7 +10,8 @@ import Predictor from './pages/Predictor';
 import AuthGuard from './components/auth/AuthGuard';
 import GuideSteps from './components/optionform/GuideSteps';
 import OptionFormBuilder from './components/optionform/OptionFormBuilder';
-import Profile from './components/auth/Profile'; // Add this
+import Profile from './components/auth/Profile';
+import CollegeDirectory from './pages/CollegeDirectory'; // Make sure this imports correctly
 
 export default function App() {
   return (
@@ -57,6 +58,12 @@ export default function App() {
           
           {/* Profile Route */}
           <Route path="/profile" element={<AuthGuard><Profile /></AuthGuard>} />
+          
+          {/* College Directory Route - ADDED AuthGuard */}
+          <Route path="/directory" element={<AuthGuard><CollegeDirectory /></AuthGuard>} />
+          
+          {/* Catch-all route */}
+          <Route path="*" element={<LandingPage />} />
         </Routes>
       </Router>
     </AppProvider>

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from '../config/firebase';
+// import { useAuthState } from 'react-firebase-hooks/auth';
+// import { auth } from '../config/firebase';
 import toast from 'react-hot-toast';
 import { 
   ArrowLeft, Search, Plus, CheckCircle, Award, Target, Shield, 
@@ -9,6 +9,13 @@ import {
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000';
+
+// Mock auth state for development (remove when using real auth)
+const useAuthState = (auth) => {
+  return [{ uid: 'test-user' }];
+};
+
+const auth = {}; // Mock auth object
 
 export default function Predictor() {
   const [user] = useAuthState(auth);
@@ -27,6 +34,34 @@ export default function Predictor() {
     city: '',
     branches: []
   });
+
+  // ✅ UPGRADE 1: Auto-fill from Profile
+  useEffect(() => {
+    if (user) {
+      const savedProfile = localStorage.getItem(`cetProfile_${user.uid}`);
+      if (savedProfile) {
+        const profileData = JSON.parse(savedProfile);
+        
+        // Auto-fill form with profile data
+        setFormData(prev => ({
+          ...prev,
+          rank: profileData.cetRank || '',
+          percentile: profileData.cetScore ? calculatePercentile(profileData.cetScore) : '',
+          category: profileData.category || 'OPEN'
+        }));
+
+        if (profileData.cetRank || profileData.cetScore) {
+          toast.success('Profile data auto-filled!');
+        }
+      }
+    }
+  }, [user]);
+
+  // Helper function for percentile calculation
+  const calculatePercentile = (score) => {
+    const maxScore = 200; // Adjust based on your CET max score
+    return ((score / maxScore) * 100).toFixed(2);
+  };
 
   const branches = [
     'Computer Engineering',
@@ -107,12 +142,20 @@ export default function Predictor() {
   // Enhanced add function with category
   const addToOptionForm = (college, category = addCategory) => {
     if (!optionForm.find(c => c.branch_code === college.branch_code)) {
-      setOptionForm([...optionForm, { 
+      const newOptionForm = [...optionForm, { 
         ...college, 
         priority: optionForm.length + 1,
         user_category: category,
         added_at: new Date().toISOString()
-      }]);
+      }];
+      setOptionForm(newOptionForm);
+      
+      // ✅ Immediately save to localStorage
+      localStorage.setItem('currentOptionForm', JSON.stringify(newOptionForm));
+      if (user) {
+        localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(newOptionForm));
+      }
+      
       toast.success(`Added to ${getCategoryLabel(category)} Priority!`);
     } else {
       toast.error('Already in Option Form');
@@ -130,7 +173,15 @@ export default function Predictor() {
       user_category: category,
       added_at: new Date().toISOString()
     }));
-    setOptionForm([...optionForm, ...enhancedColleges]);
+    const newOptionForm = [...optionForm, ...enhancedColleges];
+    setOptionForm(newOptionForm);
+    
+    // ✅ Immediately save to localStorage
+    localStorage.setItem('currentOptionForm', JSON.stringify(newOptionForm));
+    if (user) {
+      localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(newOptionForm));
+    }
+    
     toast.success(`Added ${newColleges.length} colleges to ${getCategoryLabel(category)} Priority`);
   };
 
@@ -139,14 +190,20 @@ export default function Predictor() {
     return labels[category] || category;
   };
 
+  // ✅ UPGRADE 2: Fixed navigation to OptionFormBuilder
   const navigateToOptionForm = () => {
     if (optionForm.length === 0) {
       toast.error('Please add some colleges to your option form first');
       return;
     }
-    // Save current option form to localStorage or context
+    
+    // ✅ FIX: Ensure data is saved before navigation
     localStorage.setItem('currentOptionForm', JSON.stringify(optionForm));
-    navigate('/builder/form');
+    if (user) {
+      localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(optionForm));
+    }
+    
+    navigate('/builder');
   };
 
   // Group by category
@@ -341,6 +398,7 @@ function StudentFormSection({ formData, setFormData, branches, categories, toggl
               {branches.map(branch => (
                 <button
                   key={branch}
+                  type="button"
                   onClick={() => toggleBranch(branch)}
                   className={`p-4 rounded-xl border-2 text-left transition-all ${
                     formData.branches.includes(branch)

@@ -207,7 +207,7 @@ function Sidebar() {
     { id: 'optionform', icon: FileText, label: 'Option Form Builder', path: '/builder' },
     { id: 'analytics', icon: BarChart3, label: 'Analytics', path: '/analytics' },
     { id: 'compare', icon: GitCompare, label: 'Compare Colleges', path: '/compare' },
-    { id: 'colleges', icon: GraduationCap, label: 'Colleges', path: '/colleges' },
+    { id: 'colleges', icon: GraduationCap, label: 'Colleges', path: '/directory' },
     { id: 'profile', icon: User, label: 'Profile', path: '/profile' },
   ];
 
@@ -297,6 +297,7 @@ function Sidebar() {
 }
 
 // Dashboard Home Content
+// Dashboard Home Content
 function DashboardHome({ user, navigate }) {
   const modules = [
     {
@@ -318,6 +319,15 @@ function DashboardHome({ user, navigate }) {
       path: '/builder'
     },
     {
+      id: 'college-directory', // Changed from 'colleges'
+      icon: GraduationCap,
+      title: 'College Directory',
+      description: 'Browse and add colleges from complete directory',
+      color: 'green',
+      gradient: 'from-green-500 to-green-600',
+      path: '/directory' // Changed to your college directory route
+    },
+    {
       id: 'analytics',
       icon: BarChart3,
       title: 'Analytics',
@@ -331,18 +341,9 @@ function DashboardHome({ user, navigate }) {
       icon: GitCompare,
       title: 'Compare Colleges',
       description: 'Compare colleges side-by-side to make better decisions',
-      color: 'green',
-      gradient: 'from-green-500 to-green-600',
-      path: '/compare'
-    },
-    {
-      id: 'colleges',
-      icon: GraduationCap,
-      title: 'College Directory',
-      description: 'Browse detailed information about colleges',
       color: 'orange',
       gradient: 'from-orange-500 to-orange-600',
-      path: '/colleges'
+      path: '/compare'
     },
     {
       id: 'resources',
@@ -383,7 +384,7 @@ function DashboardHome({ user, navigate }) {
                 </div>
               </div>
               <p className="text-sm text-gray-600 mb-1 font-medium">{stat.label}</p>
-              <p className="text-3xl font-bold bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent">
+              <p className={`text-3xl font-bold bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent`}>
                 {stat.value}
               </p>
             </div>
@@ -405,7 +406,7 @@ function DashboardHome({ user, navigate }) {
               className="bg-white/80 backdrop-blur-xl rounded-2xl border border-gray-200/50 p-6 text-left hover:shadow-2xl transition-all duration-300 group relative overflow-hidden"
               style={{ animationDelay: `${idx * 0.1}s` }}
             >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${module.gradient} opacity-5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+              <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${module.gradient} opacity-5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500`}></div>
               <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${module.gradient} flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-all duration-300`}>
                 <module.icon className="w-7 h-7 text-white" />
               </div>

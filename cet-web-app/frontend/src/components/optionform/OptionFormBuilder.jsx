@@ -1,154 +1,335 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-// import { useAuthState } from 'react-firebase-hooks/auth';
-// import { auth } from '../config/firebase';
 import toast from 'react-hot-toast';
-import {
-  ArrowLeft, GripVertical, Trash2, Eye, EyeOff,
-  Filter, Download, Upload, Save, BarChart3,
-  ChevronUp, ChevronDown, Search, Settings,
-  Target, Shield, Award, AlertTriangle
+import { 
+  ArrowLeft, ArrowUp, ArrowDown, Trash2, Download,
+  MapPin, GraduationCap, Filter,
+  Database, FileText, Table, FileSpreadsheet,
+  Check, ChevronUp, ChevronDown
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+
+const API_URL = 'http://localhost:5000';
 
 export default function OptionFormBuilder() {
-//   const [user] = useAuthState(auth);
   const navigate = useNavigate();
   const [optionForm, setOptionForm] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('ALL');
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [dragIndex, setDragIndex] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [selectedColleges, setSelectedColleges] = useState([]);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
-  // Load saved option form
+  // Load option form from localStorage
   useEffect(() => {
-    const savedForm = localStorage.getItem('currentOptionForm');
-    if (savedForm) {
-      try {
-        const parsedForm = JSON.parse(savedForm);
-        // Add initial priorities if not present
-        const formWithPriorities = parsedForm.map((item, index) => ({
-          ...item,
-          priority: index + 1
-        }));
-        setOptionForm(formWithPriorities);
-      } catch (error) {
-        console.error('Error loading saved form:', error);
-      }
+    const savedOptionForm = localStorage.getItem('currentOptionForm');
+    if (savedOptionForm) {
+      const formData = JSON.parse(savedOptionForm);
+      setOptionForm(formData);
     }
   }, []);
 
-  // Save to localStorage whenever optionForm changes
-  useEffect(() => {
-    localStorage.setItem('currentOptionForm', JSON.stringify(optionForm));
-  }, [optionForm]);
+  // Keep original order until auto-rank is clicked
+  const [autoRanked, setAutoRanked] = useState(false);
 
-  const filteredForm = optionForm.filter(item => {
-    const matchesSearch = searchTerm === '' || 
-      item.college_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.branch.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesCategory = filterCategory === 'ALL' || 
-      item.user_category === filterCategory;
-    
-    return matchesSearch && matchesCategory;
-  });
+  // Get sorted colleges (only when auto-ranked)
+  const displayedColleges = useMemo(() => {
+    if (autoRanked) {
+      // Sort by cutoff when auto-ranked
+      return [...optionForm].sort((a, b) => b.historical_cutoff - a.historical_cutoff)
+        .map((college, index) => ({ ...college, priority: index + 1 }));
+    } else {
+      // Keep manual order
+      return optionForm;
+    }
+  }, [optionForm, autoRanked]);
 
-  const handleDragStart = (index) => {
-    setDragIndex(index);
+  // AUTO-RANK FUNCTION
+  const handleAutoRank = () => {
+    if (optionForm.length === 0) {
+      toast.error('No colleges in option form to rank');
+      return;
+    }
+
+    // Sort by cutoff descending
+    const sortedForm = [...optionForm].sort((a, b) => b.historical_cutoff - a.historical_cutoff)
+      .map((college, index) => ({ ...college, priority: index + 1 }));
+
+    setOptionForm(sortedForm);
+    setAutoRanked(true);
+    localStorage.setItem('currentOptionForm', JSON.stringify(sortedForm));
+    
+    const highestCutoff = sortedForm[0]?.historical_cutoff || 0;
+    toast.success(`Ranked ${sortedForm.length} colleges! Highest: ${highestCutoff}%`);
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
+  // MOVE SINGLE COLLEGE
+  const moveCollege = (branchCode, direction) => {
+    setAutoRanked(false); // Disable auto-ranking when manually moving
+    
+    const currentIndex = optionForm.findIndex(college => college.branch_code === branchCode);
+    
+    if (
+      (direction === 'up' && currentIndex === 0) ||
+      (direction === 'down' && currentIndex === optionForm.length - 1)
+    ) return;
 
-  const handleDrop = (dropIndex) => {
-    if (dragIndex === null || dragIndex === dropIndex) return;
+    const newOptionForm = [...optionForm];
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    
+    // Swap the colleges
+    [newOptionForm[currentIndex], newOptionForm[newIndex]] = 
+    [newOptionForm[newIndex], newOptionForm[currentIndex]];
 
-    const newForm = [...optionForm];
-    const draggedItem = newForm[dragIndex];
-    newForm.splice(dragIndex, 1);
-    newForm.splice(dropIndex, 0, draggedItem);
-
-    // Update priorities
-    const updatedForm = newForm.map((item, index) => ({
+    // Update priorities based on new positions
+    const updatedForm = newOptionForm.map((item, index) => ({
       ...item,
       priority: index + 1
     }));
 
     setOptionForm(updatedForm);
-    setDragIndex(null);
+    localStorage.setItem('currentOptionForm', JSON.stringify(updatedForm));
+    toast.success(`Moved ${direction} in priority`);
   };
 
-  const removeCollege = (index) => {
-    const newForm = optionForm.filter((_, i) => i !== index);
-    const updatedForm = newForm.map((item, i) => ({
-      ...item,
-      priority: i + 1
-    }));
-    setOptionForm(updatedForm);
-    toast.success('College removed from form');
-  };
-
-  const movePriority = (index, direction) => {
-    if ((direction === -1 && index === 0) || (direction === 1 && index === optionForm.length - 1)) {
+  // BULK MOVE SELECTED COLLEGES
+  const moveSelectedColleges = (direction) => {
+    if (selectedColleges.length === 0) {
+      toast.error('Select colleges first');
       return;
     }
 
-    const newForm = [...optionForm];
-    const targetIndex = index + direction;
-    [newForm[index], newForm[targetIndex]] = [newForm[targetIndex], newForm[index]];
+    setAutoRanked(false); // Disable auto-ranking when manually moving
+    
+    const newOptionForm = [...optionForm];
+    let moved = 0;
 
-    const updatedForm = newForm.map((item, i) => ({
-      ...item,
-      priority: i + 1
+    // Get indices of selected colleges
+    const selectedIndices = selectedColleges
+      .map(branchCode => optionForm.findIndex(college => college.branch_code === branchCode))
+      .sort((a, b) => direction === 'up' ? a - b : b - a);
+
+    // Move each selected college
+    for (const currentIndex of selectedIndices) {
+      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      
+      // Check bounds
+      if (direction === 'up' && currentIndex === 0) continue;
+      if (direction === 'down' && currentIndex === optionForm.length - 1) continue;
+      
+      // Swap
+      [newOptionForm[currentIndex], newOptionForm[newIndex]] = 
+      [newOptionForm[newIndex], newOptionForm[currentIndex]];
+      moved++;
+    }
+
+    if (moved > 0) {
+      // Update priorities
+      const updatedForm = newOptionForm.map((item, index) => ({
+        ...item,
+        priority: index + 1
+      }));
+
+      setOptionForm(updatedForm);
+      localStorage.setItem('currentOptionForm', JSON.stringify(updatedForm));
+      toast.success(`Moved ${moved} college(s) ${direction}`);
+    }
+  };
+
+  // TOGGLE SELECTION
+  const toggleCollegeSelection = (branchCode) => {
+    setSelectedColleges(prev => 
+      prev.includes(branchCode) 
+        ? prev.filter(code => code !== branchCode)
+        : [...prev, branchCode]
+    );
+  };
+
+  // SELECT ALL VISIBLE
+  const selectAllVisible = () => {
+    const visibleBranchCodes = displayedColleges.map(college => college.branch_code);
+    setSelectedColleges(visibleBranchCodes);
+    toast.success(`Selected ${visibleBranchCodes.length} colleges`);
+  };
+
+  // CLEAR SELECTION
+  const clearSelection = () => {
+    setSelectedColleges([]);
+    toast.success('Selection cleared');
+  };
+
+  // REMOVE COLLEGE
+  const removeFromOptionForm = (branchCode) => {
+    const newOptionForm = optionForm.filter(college => college.branch_code !== branchCode);
+    
+    const updatedForm = newOptionForm.map((college, index) => ({
+      ...college,
+      priority: index + 1
     }));
 
     setOptionForm(updatedForm);
+    localStorage.setItem('currentOptionForm', JSON.stringify(updatedForm));
+    toast.success('College removed');
+    
+    // Remove from selection if selected
+    if (selectedColleges.includes(branchCode)) {
+      setSelectedColleges(prev => prev.filter(code => code !== branchCode));
+    }
   };
 
-  const getCategoryStats = () => {
-    const stats = {
-      HIGH: { count: 0, percent: 0 },
-      MEDIUM: { count: 0, percent: 0 },
-      LOW: { count: 0, percent: 0 }
+  // REMOVE SELECTED COLLEGES
+  const removeSelectedColleges = () => {
+    if (selectedColleges.length === 0) {
+      toast.error('Select colleges to remove');
+      return;
+    }
+
+    const newOptionForm = optionForm.filter(
+      college => !selectedColleges.includes(college.branch_code)
+    );
+    
+    const updatedForm = newOptionForm.map((college, index) => ({
+      ...college,
+      priority: index + 1
+    }));
+
+    setOptionForm(updatedForm);
+    localStorage.setItem('currentOptionForm', JSON.stringify(updatedForm));
+    toast.success(`Removed ${selectedColleges.length} college(s)`);
+    setSelectedColleges([]);
+  };
+
+  // Export functions remain the same...
+  const exportToCSV = () => {
+    if (optionForm.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const headers = ['Priority', 'College Name', 'Branch', 'City', 'Type', 'Historical Cutoff'];
+    
+    const csvRows = [
+      headers.join(','),
+      ...optionForm.map(college => [
+        college.priority,
+        `"${college.college_name}"`,
+        `"${college.branch}"`,
+        `"${college.city}"`,
+        `"${college.type}"`,
+        `${college.historical_cutoff}%`
+      ].join(','))
+    ];
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `option-form-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    
+    toast.success('Exported to CSV!');
+    setExportMenuOpen(false);
+  };
+
+  const exportToExcel = () => {
+    if (optionForm.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(optionForm.map(college => ({
+      'Priority': college.priority,
+      'College Name': college.college_name,
+      'Branch': college.branch,
+      'City': college.city,
+      'Type': college.type,
+      'Historical Cutoff': `${college.historical_cutoff}%`
+    })));
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Option Form');
+    
+    XLSX.writeFile(workbook, `option-form-${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    toast.success('Exported to Excel!');
+    setExportMenuOpen(false);
+  };
+
+  const exportToPDF = () => {
+    if (optionForm.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const doc = new jsPDF();
+    
+    // Title
+    doc.setFontSize(16);
+    doc.text('CAP Option Form', 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 22);
+    doc.text(`Total Colleges: ${optionForm.length}`, 14, 29);
+    
+    // Table data
+    const tableData = optionForm.map(college => [
+      college.priority,
+      college.college_name,
+      college.branch,
+      college.city,
+      college.type,
+      `${college.historical_cutoff}%`
+    ]);
+
+    // Auto-table
+    doc.autoTable({
+      startY: 35,
+      head: [['Priority', 'College Name', 'Branch', 'City', 'Type', 'Cutoff']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [41, 128, 185] },
+      styles: { fontSize: 9 }
+    });
+
+    doc.save(`option-form-${new Date().toISOString().split('T')[0]}.pdf`);
+    
+    toast.success('Exported to PDF!');
+    setExportMenuOpen(false);
+  };
+
+  // STATISTICS
+  const getStatistics = () => {
+    const total = optionForm.length;
+    const highestCutoff = optionForm.length > 0 ? Math.max(...optionForm.map(c => c.historical_cutoff || 0)) : 0;
+    const avgCutoff = optionForm.length > 0 
+      ? (optionForm.reduce((sum, c) => sum + (c.historical_cutoff || 0), 0) / optionForm.length).toFixed(2)
+      : 0;
+
+    return {
+      total,
+      highestCutoff,
+      avgCutoff,
+      selected: selectedColleges.length
     };
-
-    optionForm.forEach(item => {
-      if (stats[item.user_category]) {
-        stats[item.user_category].count++;
-      }
-    });
-
-    Object.keys(stats).forEach(key => {
-      stats[key].percent = optionForm.length > 0 ? 
-        Math.round((stats[key].count / optionForm.length) * 100) : 0;
-    });
-
-    return stats;
   };
 
-  const exportForm = () => {
-    const csvContent = "Priority,Category,College,Branch,City,Type,Historical Cutoff,Predicted Cutoff,Probability\n" +
-      optionForm.map(item => 
-        `${item.priority},"${item.user_category}","${item.college_name}","${item.branch}","${item.city}","${item.type}",${item.historical_cutoff},${item.predicted_cutoff},${item.admission_probability}`
-      ).join('\n');
+  const stats = getStatistics();
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cap-option-form-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success('Option form exported successfully');
-  };
+  // Check move permissions for bulk actions
+  const canMoveSelectedUp = selectedColleges.length > 0 && 
+    selectedColleges.some(code => {
+      const index = optionForm.findIndex(c => c.branch_code === code);
+      return index > 0;
+    });
 
-  const categoryStats = getCategoryStats();
+  const canMoveSelectedDown = selectedColleges.length > 0 && 
+    selectedColleges.some(code => {
+      const index = optionForm.findIndex(c => c.branch_code === code);
+      return index < optionForm.length - 1;
+    });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200 sticky top-0 z-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -163,278 +344,296 @@ export default function OptionFormBuilder() {
                   CAP Option Form Builder
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Strategic priority management for {optionForm.length}/150 choices
+                  {autoRanked ? 'Sorted by cutoff' : 'Manual order'} ({optionForm.length}/150)
                 </p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
+              {/* Bulk Actions */}
+              {selectedColleges.length > 0 && (
+                <div className="flex gap-2 mr-4 border-r pr-4 border-gray-300">
+                  <button
+                    onClick={() => moveSelectedColleges('up')}
+                    disabled={!canMoveSelectedUp}
+                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 transition flex items-center gap-1 text-sm"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                    Move Up
+                  </button>
+                  <button
+                    onClick={() => moveSelectedColleges('down')}
+                    disabled={!canMoveSelectedDown}
+                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 transition flex items-center gap-1 text-sm"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                    Move Down
+                  </button>
+                  <button
+                    onClick={removeSelectedColleges}
+                    className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition flex items-center gap-1 text-sm"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Remove
+                  </button>
+                </div>
+              )}
+
               <button
-                onClick={() => setShowAnalysis(!showAnalysis)}
-                className={`p-2 rounded-lg transition-colors ${
-                  showAnalysis ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-600'
-                }`}
-              >
-                <BarChart3 className="w-5 h-5" />
-              </button>
-              <button
-                onClick={exportForm}
+                onClick={handleAutoRank}
                 disabled={optionForm.length === 0}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 disabled:opacity-50"
+                className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition"
               >
-                <Download className="w-5 h-5" />
+                Sort by Cutoff
               </button>
+              
+              {/* Export Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                  disabled={optionForm.length === 0}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                
+                {exportMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <button
+                      onClick={exportToPDF}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 transition flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4" />
+                      Export as PDF
+                    </button>
+                    <button
+                      onClick={exportToExcel}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 transition flex items-center gap-2"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Export as Excel
+                    </button>
+                    <button
+                      onClick={exportToCSV}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 transition flex items-center gap-2"
+                    >
+                      <Table className="w-4 h-4" />
+                      Export as CSV
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Strategy Overview */}
-        {showAnalysis && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-gray-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Strategic Distribution Analysis</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="text-center p-4 border-2 border-red-200 rounded-xl bg-red-50">
-                <Award className="w-8 h-8 text-red-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-red-600">{categoryStats.HIGH.count}</div>
-                <div className="text-sm text-red-700">Dream Colleges</div>
-                <div className="text-xs text-red-600 mt-1">
-                  {categoryStats.HIGH.percent}% of total
-                </div>
-              </div>
-              <div className="text-center p-4 border-2 border-blue-200 rounded-xl bg-blue-50">
-                <Target className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-blue-600">{categoryStats.MEDIUM.count}</div>
-                <div className="text-sm text-blue-700">Perfect Match</div>
-                <div className="text-xs text-blue-600 mt-1">
-                  {categoryStats.MEDIUM.percent}% of total
-                </div>
-              </div>
-              <div className="text-center p-4 border-2 border-green-200 rounded-xl bg-green-50">
-                <Shield className="w-8 h-8 text-green-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-green-600">{categoryStats.LOW.count}</div>
-                <div className="text-sm text-green-700">Safety Net</div>
-                <div className="text-xs text-green-600 mt-1">
-                  {categoryStats.LOW.percent}% of total
-                </div>
-              </div>
-            </div>
-            
-            {/* Recommendations */}
-            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                <span className="font-semibold text-yellow-800">Strategic Recommendations</span>
-              </div>
-              <div className="text-sm text-yellow-700 space-y-1">
-                {optionForm.length < 150 && (
-                  <p>• Add {150 - optionForm.length} more colleges to maximize chances</p>
-                )}
-                {categoryStats.HIGH.percent < 15 && (
-                  <p>• Consider adding more dream colleges (target 15-20%)</p>
-                )}
-                {categoryStats.LOW.percent < 25 && (
-                  <p>• Ensure adequate safety net coverage (target 25-30%)</p>
-                )}
-                {optionForm.length >= 120 && (
-                  <p>• Good progress! Consider fine-tuning priority order</p>
-                )}
-              </div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Statistics */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Option Form Summary</h2>
+            <div className="flex items-center gap-3">
+              {selectedColleges.length > 0 ? (
+                <>
+                  <span className="text-blue-600 font-medium">
+                    {selectedColleges.length} selected
+                  </span>
+                  <button
+                    onClick={clearSelection}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={selectAllVisible}
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    Select All ({displayedColleges.length})
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={selectAllVisible}
+                  disabled={displayedColleges.length === 0}
+                  className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                >
+                  Select All ({displayedColleges.length})
+                </button>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Controls */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-gray-200">
-          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-            <div className="flex gap-3 flex-1 w-full sm:w-auto">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search colleges or branches..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="ALL">All Categories</option>
-                <option value="HIGH">Dream Colleges</option>
-                <option value="MEDIUM">Perfect Match</option>
-                <option value="LOW">Safety Net</option>
-              </select>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
+              <div className="text-sm text-blue-700">Total Colleges</div>
             </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => navigate('/builder/guide')}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                View Guide
-              </button>
-              <button
-                onClick={() => navigate('/predictor')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Add More Colleges
-              </button>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">{stats.highestCutoff}%</div>
+              <div className="text-sm text-green-700">Highest Cutoff</div>
+            </div>
+            <div className="text-center p-4 bg-indigo-50 rounded-lg">
+              <div className="text-2xl font-bold text-indigo-600">{stats.avgCutoff}%</div>
+              <div className="text-sm text-indigo-700">Average Cutoff</div>
+            </div>
+            <div className={`text-center p-4 rounded-lg ${
+              stats.selected > 0 ? 'bg-yellow-50' : 'bg-gray-50'
+            }`}>
+              <div className={`text-2xl font-bold ${
+                stats.selected > 0 ? 'text-yellow-600' : 'text-gray-600'
+              }`}>{stats.selected}</div>
+              <div className="text-sm">Selected</div>
             </div>
           </div>
         </div>
 
-        {/* Option Form List */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-          {filteredForm.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {optionForm.length === 0 ? 'Your option form is empty' : 'No colleges match your filters'}
+        {/* Colleges List */}
+        <div className="space-y-4">
+          {displayedColleges.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-lg p-12 text-center">
+              <GraduationCap className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-gray-900 mb-2">
+                {optionForm.length === 0 ? 'No Colleges Added' : 'No Colleges Match Filters'}
               </h3>
               <p className="text-gray-600 mb-4">
                 {optionForm.length === 0 
-                  ? 'Start by adding colleges from the predictor to build your strategic option form'
-                  : 'Try adjusting your search or filter criteria'
+                  ? 'Go back to Predictor to add colleges to your option form'
+                  : 'Try adjusting your search filters'
                 }
               </p>
-              <button
-                onClick={() => navigate('/predictor')}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Find Colleges
-              </button>
+              {optionForm.length === 0 && (
+                <button
+                  onClick={() => navigate('/predictor')}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
+                >
+                  Go to Predictor
+                </button>
+              )}
             </div>
           ) : (
-            <div className="divide-y divide-gray-200">
-              {filteredForm.map((item, index) => (
-                <div
-                  key={`${item.branch_code}-${index}`}
-                  draggable
-                  onDragStart={() => handleDragStart(optionForm.findIndex(i => i.branch_code === item.branch_code))}
-                  onDragOver={handleDragOver}
-                  onDrop={() => handleDrop(optionForm.findIndex(i => i.branch_code === item.branch_code))}
-                  className="p-6 hover:bg-gray-50 transition-colors group"
-                >
-                  <div className="flex items-start gap-4">
-                    {/* Drag Handle and Priority */}
-                    <div className="flex flex-col items-center gap-2">
-                      <GripVertical className="w-5 h-5 text-gray-400 cursor-move hover:text-gray-600" />
-                      <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                        {item.priority}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <button
-                          onClick={() => movePriority(optionForm.findIndex(i => i.branch_code === item.branch_code), -1)}
-                          disabled={item.priority === 1}
-                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
-                        >
-                          <ChevronUp className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => movePriority(optionForm.findIndex(i => i.branch_code === item.branch_code), 1)}
-                          disabled={item.priority === optionForm.length}
-                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
-                        >
-                          <ChevronDown className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* College Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="text-lg font-bold text-gray-900 truncate">
-                            {item.college_name}
-                          </h3>
-                          <p className="text-gray-600 font-medium">{item.branch}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                            item.user_category === 'HIGH' ? 'bg-red-100 text-red-700' :
-                            item.user_category === 'MEDIUM' ? 'bg-blue-100 text-blue-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {item.user_category === 'HIGH' ? 'DREAM' : 
-                             item.user_category === 'MEDIUM' ? 'MATCH' : 'SAFETY'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-500">Location:</span>
-                          <p className="font-medium">{item.city}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Type:</span>
-                          <p className="font-medium">{item.type}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Cutoff:</span>
-                          <p className="font-medium text-indigo-600">{item.historical_cutoff}%</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Probability:</span>
-                          <p className={`font-medium ${
-                            item.admission_probability >= 70 ? 'text-green-600' :
-                            item.admission_probability >= 50 ? 'text-blue-600' :
-                            'text-orange-600'
-                          }`}>
-                            {item.admission_probability}%
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => removeCollege(optionForm.findIndex(i => i.branch_code === item.branch_code))}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Remove from form"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            displayedColleges.map((college) => (
+              <CollegePriorityCard
+                key={college.branch_code}
+                college={college}
+                isSelected={selectedColleges.includes(college.branch_code)}
+                onSelect={() => toggleCollegeSelection(college.branch_code)}
+                onMoveUp={() => moveCollege(college.branch_code, 'up')}
+                onMoveDown={() => moveCollege(college.branch_code, 'down')}
+                onRemove={() => removeFromOptionForm(college.branch_code)}
+                canMoveUp={optionForm.findIndex(c => c.branch_code === college.branch_code) > 0}
+                canMoveDown={optionForm.findIndex(c => c.branch_code === college.branch_code) < optionForm.length - 1}
+              />
+            ))
           )}
         </div>
+      </main>
+    </div>
+  );
+}
 
-        {/* Bottom Action Bar */}
-        {optionForm.length > 0 && (
-          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-xl shadow-2xl border border-gray-200 px-6 py-4">
-            <div className="flex items-center gap-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{optionForm.length}</div>
-                <div className="text-sm text-gray-600">Colleges Added</div>
-              </div>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900">{150 - optionForm.length}</div>
-                <div className="text-sm text-gray-600">Remaining Slots</div>
-              </div>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <button
-                onClick={exportForm}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Export Form
-              </button>
+// College Priority Card Component - REMOVED "Historical Cutoff" tag
+function CollegePriorityCard({ 
+  college, 
+  isSelected,
+  onSelect,
+  onMoveUp, 
+  onMoveDown, 
+  onRemove,
+  canMoveUp,
+  canMoveDown
+}) {
+  return (
+    <div className={`bg-white border-2 rounded-xl p-6 transition-all ${
+      isSelected 
+        ? 'border-blue-500 bg-blue-50' 
+        : 'border-gray-100 hover:border-blue-200 hover:shadow-lg'
+    }`}>
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-4 flex-1">
+          {/* Selection Checkbox */}
+          <div className="flex-shrink-0 mt-1">
+            <button
+              onClick={onSelect}
+              className={`w-6 h-6 rounded border-2 flex items-center justify-center ${
+                isSelected 
+                  ? 'bg-blue-600 border-blue-600' 
+                  : 'border-gray-300 hover:border-blue-400'
+              }`}
+            >
+              {isSelected && <Check className="w-4 h-4 text-white" />}
+            </button>
+          </div>
+
+          {/* Priority Number */}
+          <div className="relative flex-shrink-0">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+              {college.priority}
             </div>
           </div>
-        )}
-      </main>
+
+          {/* College Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-gray-900 mb-1">
+                  {college.college_name}
+                </h3>
+                <p className="text-gray-600 font-medium">{college.branch}</p>
+              </div>
+            </div>
+
+            {/* College Details */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500 mb-1">Location</p>
+                <p className="font-bold text-gray-900 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {college.city}
+                </p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500 mb-1">Type</p>
+                <p className="font-bold text-gray-900 text-sm">{college.type}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500 mb-1">Historical Cutoff</p>
+                <p className="font-bold text-blue-600">{college.historical_cutoff}%</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col gap-2 ml-4">
+          <button
+            onClick={onMoveUp}
+            disabled={!canMoveUp}
+            className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition"
+            title="Move up"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={onMoveDown}
+            disabled={!canMoveDown}
+            className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition"
+            title="Move down"
+          >
+            <ArrowDown className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={onRemove}
+            className="p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg transition"
+            title="Remove"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
