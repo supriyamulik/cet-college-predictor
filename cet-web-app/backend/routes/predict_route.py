@@ -18,7 +18,7 @@ except Exception as e:
 
 
 # ==========================================
-# Main Prediction Endpoint
+# Main Prediction Endpoint (ENHANCED WITH GENDER)
 # ==========================================
 @predict_bp.route('/api/predict', methods=['POST'])
 def predict_colleges():
@@ -30,6 +30,7 @@ def predict_colleges():
         "rank": 5000,
         "percentile": 99.98,
         "category": "OPEN",
+        "gender": "Male",  // NEW: Added gender support
         "city": "Pune",
         "branches": ["Computer Engineering"]
     }
@@ -51,14 +52,15 @@ def predict_colleges():
                 'error': 'No data provided'
             }), 400
 
-        # Extract parameters
+        # Extract parameters (INCLUDING GENDER)
         rank = data.get('rank')
         percentile = data.get('percentile')
         category = data.get('category', 'OPEN').upper()
+        gender = data.get('gender')  # NEW: Extract gender
         city = data.get('city')
         branches = data.get('branches', [])
 
-        # Validate
+        # Validate required fields
         if rank is None or percentile is None:
             return jsonify({
                 'success': False,
@@ -77,13 +79,23 @@ def predict_colleges():
                 'error': 'Percentile must be between 0 and 100'
             }), 400
 
-        # Make prediction
+        # Validate gender (optional but log if missing)
+        if gender:
+            gender = str(gender).strip()
+            if gender not in ['Male', 'Female', 'M', 'F', 'Other']:
+                print(f"⚠️ Invalid gender value: {gender}, ignoring")
+                gender = None
+        else:
+            print("⚠️ Gender not provided in request")
+
+        # Make prediction (WITH GENDER)
         if branches and len(branches) > 0:
             predictions = predictor.predict_multiple_branches(
                 rank=int(rank),
                 percentile=float(percentile),
                 category=category,
                 branches=branches,
+                gender=gender,  # NEW: Pass gender
                 city=city,
                 limit=100
             )
@@ -92,6 +104,7 @@ def predict_colleges():
                 rank=int(rank),
                 percentile=float(percentile),
                 category=category,
+                gender=gender,  # NEW: Pass gender
                 city=city,
                 limit=100
             )
@@ -105,6 +118,7 @@ def predict_colleges():
                 'rank': rank,
                 'percentile': percentile,
                 'category': category,
+                'gender': gender if gender else 'Not specified',  # NEW: Include in response
                 'city': city,
                 'branches': branches if branches else ['All']
             },

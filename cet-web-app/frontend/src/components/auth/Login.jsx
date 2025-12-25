@@ -1,7 +1,13 @@
+// src/components/auth/Login.js
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '../../config/firebase';
+import { 
+  signInWithEmailAndPassword, 
+  signInWithPopup, 
+  GoogleAuthProvider 
+} from 'firebase/auth';
+import { auth, db } from '../../config/firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, LogIn, Chrome } from 'lucide-react';
 
@@ -12,14 +18,43 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  // -------------------- CHECK ONBOARDING --------------------
+  const checkOnboardingStatus = async (uid, userEmail, userName) => {
+    const userDocRef = doc(db, 'users', uid);
+    const docSnap = await getDoc(userDocRef);
+
+    if (!docSnap.exists()) {
+      // First-time login: create a user document with default values
+      await setDoc(userDocRef, {
+        fullName: userName || '',
+        email: userEmail || '',
+        phone: '',
+        branch: '',
+        year: '',
+        college: '',
+        onboardingComplete: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return '/onboarding';
+    }
+
+    const data = docSnap.data();
+    return data.onboardingComplete ? '/dashboard' : '/onboarding';
+  };
+
+  // -------------------- EMAIL/PASSWORD LOGIN --------------------
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const res = await signInWithEmailAndPassword(auth, email, password);
       toast.success('Welcome back! 🎉');
-      navigate('/dashboard');
+
+      const destination = await checkOnboardingStatus(res.user.uid, res.user.email, res.user.displayName);
+      navigate(destination, { replace: true });
+
     } catch (error) {
       console.error(error);
       if (error.code === 'auth/user-not-found') {
@@ -36,14 +71,18 @@ export default function Login() {
     }
   };
 
+  // -------------------- GOOGLE LOGIN --------------------
   const handleGoogleLogin = async () => {
     setLoading(true);
     const provider = new GoogleAuthProvider();
 
     try {
-      await signInWithPopup(auth, provider);
+      const res = await signInWithPopup(auth, provider);
       toast.success('Welcome! 🎉');
-      navigate('/dashboard');
+
+      const destination = await checkOnboardingStatus(res.user.uid, res.user.email, res.user.displayName);
+      navigate(destination, { replace: true });
+
     } catch (error) {
       console.error(error);
       toast.error('Failed to login with Google');
@@ -52,10 +91,10 @@ export default function Login() {
     }
   };
 
+  // -------------------- RENDER --------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Back to Home */}
         <button
           onClick={() => navigate('/')}
           className="mb-6 text-gray-600 hover:text-gray-800 flex items-center gap-2 transition"
@@ -63,7 +102,6 @@ export default function Login() {
           ← Back to Home
         </button>
 
-        {/* Login Card */}
         <div className="bg-white rounded-3xl shadow-2xl p-8 backdrop-blur-lg bg-opacity-95">
           {/* Header */}
           <div className="text-center mb-8">
@@ -94,7 +132,6 @@ export default function Login() {
 
           {/* Email Login Form */}
           <form onSubmit={handleEmailLogin} className="space-y-4">
-            {/* Email Input */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
               <div className="relative">
@@ -110,7 +147,6 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Password Input */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
               <div className="relative">
@@ -133,14 +169,12 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Forgot Password */}
             <div className="text-right">
               <button type="button" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
                 Forgot Password?
               </button>
             </div>
 
-            {/* Login Button */}
             <button
               type="submit"
               disabled={loading}
@@ -160,7 +194,6 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Sign Up Link */}
           <p className="text-center text-gray-600 mt-6">
             Don't have an account?{' '}
             <Link to="/signup" className="text-blue-600 hover:text-blue-700 font-semibold">
@@ -169,7 +202,6 @@ export default function Login() {
           </p>
         </div>
 
-        {/* Security Badge */}
         <div className="text-center mt-6 text-sm text-gray-600">
           🔒 Secured by Firebase Authentication
         </div>

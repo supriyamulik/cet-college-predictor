@@ -1,9 +1,8 @@
-
+// src/components/auth/Signup.js
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth, db } from '../../config/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { auth } from '../../config/firebase';
 import toast from 'react-hot-toast';
 import { User, Mail, Lock, Eye, EyeOff, UserPlus, Chrome, Phone } from 'lucide-react';
 
@@ -25,72 +24,79 @@ export default function Signup() {
   };
 
   const handleEmailSignup = async (e) => {
-  e.preventDefault();
-  
-  // Validation
-  if (formData.password !== formData.confirmPassword) {
-    toast.error('Passwords do not match!');
-    return;
-  }
-
-  if (formData.password.length < 6) {
-    toast.error('Password must be at least 6 characters');
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    // Create user
-    const userCredential = await createUserWithEmailAndPassword(
-      auth,
-      formData.email,
-      formData.password
-    );
-
-    // Update profile (keep this - it's fast)
-    await updateProfile(userCredential.user, {
-      displayName: formData.name
-    });
-
-    // ✅ REMOVED FIRESTORE WRITE - We'll do it on Dashboard first visit
+    e.preventDefault();
     
-    toast.success('Account created successfully! 🎉');
-    navigate('/dashboard');
-  } catch (error) {
-    console.error(error);
-    if (error.code === 'auth/email-already-in-use') {
-      toast.error('This email is already registered');
-    } else if (error.code === 'auth/invalid-email') {
-      toast.error('Invalid email address');
-    } else if (error.code === 'auth/weak-password') {
-      toast.error('Password is too weak');
-    } else {
-      toast.error('Failed to create account. Please try again.');
+    // Validation
+    if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match!');
+      return;
     }
-  } finally {
-    setLoading(false);
-  }
-};
+
+    if (formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Create user
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        formData.email,
+        formData.password
+      );
+
+      // Update profile
+      await updateProfile(userCredential.user, {
+        displayName: formData.name
+      });
+
+      toast.success('Account created successfully! 🎉');
+      
+      // ✅ NEW - Always go to onboarding for new users
+      navigate('/onboarding');
+      
+    } catch (error) {
+      console.error(error);
+      if (error.code === 'auth/email-already-in-use') {
+        toast.error('This email is already registered');
+      } else if (error.code === 'auth/invalid-email') {
+        toast.error('Invalid email address');
+      } else if (error.code === 'auth/weak-password') {
+        toast.error('Password is too weak');
+      } else {
+        toast.error('Failed to create account. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleSignup = async () => {
-  setLoading(true);
-  const provider = new GoogleAuthProvider();
+    setLoading(true);
+    const provider = new GoogleAuthProvider();
 
-  try {
-    await signInWithPopup(auth, provider);
-    
-    // ✅ REMOVED FIRESTORE WRITE
-    
-    toast.success('Welcome to CETInsights! 🎉');
-    navigate('/dashboard');
-  } catch (error) {
-    console.error(error);
-    toast.error('Failed to sign up with Google');
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      await signInWithPopup(auth, provider);
+      toast.success('Welcome to CETInsights! 🎉');
+      
+      // ✅ NEW - Check if profile exists
+      const profile = localStorage.getItem('userProfile');
+      
+      if (!profile || !JSON.parse(profile).onboardingComplete) {
+        navigate('/onboarding');
+      } else {
+        navigate('/dashboard');
+      }
+      
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to sign up with Google');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-4">

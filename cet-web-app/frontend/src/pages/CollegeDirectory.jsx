@@ -136,31 +136,31 @@ export default function CollegeDirectory() {
   setAddingCollege(college['College Code']);
   
   try {
-    // Get current option form from localStorage
+    // Call backend to get proper cutoff data
+    const response = await fetch(
+      `${API_URL}/api/colleges/${college['College Code']}/add-to-form`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: filters.category,
+          branch: 'Computer Engineering' // You can make this selectable
+        })
+      }
+    );
+    
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to add college');
+    }
+    
+    // Get current option form
     const savedOptionForm = localStorage.getItem('currentOptionForm');
     let currentForm = savedOptionForm ? JSON.parse(savedOptionForm) : [];
     
-    // Create college object for option form
-    const newCollege = {
-      college_name: college['College Name'],
-      branch: 'Computer Engineering', // Default
-      branch_code: `${college['College Code']}_COMP_${Date.now()}`,
-      city: college.City || 'Unknown',
-      type: 'Unknown', // You might want to add this to your Excel
-      historical_cutoff: 0, // You can calculate this later
-      predicted_cutoff: 0,
-      quota_category: filters.category,
-      search_category: getSearchCategory(filters.category),
-      admission_probability: 50,
-      closeness: 0,
-      college_url: college.URL || '',
-      college_code: college['College Code'],
-      added_from_directory: true,
-      added_at: new Date().toISOString()
-    };
-    
-    // Add to form
-    currentForm.push(newCollege);
+    // Add the college with proper cutoff data from backend
+    currentForm.push(result.college);
     
     // Sort by historical cutoff (descending)
     currentForm.sort((a, b) => (b.historical_cutoff || 0) - (a.historical_cutoff || 0));
@@ -178,7 +178,11 @@ export default function CollegeDirectory() {
     toast.success(
       <div>
         <p className="font-semibold">✅ {college['College Name']} added!</p>
-        <p className="text-sm">Added to option form at position #{newCollege.priority}</p>
+        {result.college.historical_cutoff > 0 ? (
+          <p className="text-sm">Cutoff: {result.college.historical_cutoff}%</p>
+        ) : (
+          <p className="text-sm text-gray-500">No historical cutoff data</p>
+        )}
       </div>,
       { duration: 3000 }
     );

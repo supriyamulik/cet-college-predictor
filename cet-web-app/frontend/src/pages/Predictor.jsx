@@ -1,89 +1,119 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-// import { useAuthState } from 'react-firebase-hooks/auth';
-// import { auth } from '../config/firebase';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { auth, db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { 
   ArrowLeft, Search, Plus, CheckCircle, Award, Target, Shield, 
-  User, GraduationCap, List, Filter, Download, Upload
+  User, GraduationCap, List, AlertCircle, Edit
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000';
 
-// Mock auth state for development (remove when using real auth)
-const useAuthState = (auth) => {
-  return [{ uid: 'test-user' }];
-};
-
-const auth = {}; // Mock auth object
-
 export default function Predictor() {
-  const [user] = useAuthState(auth);
+  const [user, authLoading] = useAuthState(auth);
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [predictions, setPredictions] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [optionForm, setOptionForm] = useState([]);
   const [addCategory, setAddCategory] = useState('HIGH');
+  const [profileData, setProfileData] = useState(null);
+  
+  // Enhanced filter states
+  const [showLadiesOnly, setShowLadiesOnly] = useState(false);
+  const [showPWD, setShowPWD] = useState(false);
+  const [showDefence, setShowDefence] = useState(false);
 
-  const [formData, setFormData] = useState({
-    rank: '',
-    percentile: '',
-    category: 'OPEN',
-    city: '',
-    branches: []
-  });
+  // Ladies-only categories (from Python)
+  const LADIES_ONLY_CATEGORIES = [
+    'LOPENS', 'LOPENH',
+    'LOBCS', 'LOBCO', 'LOBCH',
+    'LSCS', 'LSCO', 'LSCH',
+    'LSTS', 'LSTO', 'LSTH',
+    'LRNT1S', 'LRNT1H',
+    'LRNT2S', 'LRNT2H',
+    'LRNT3S', 'LRNT3H',
+    'LVJS', 'LVJH',
+    'LEWSS', 'LEWSH'
+  ];
 
-  // ✅ UPGRADE 1: Auto-fill from Profile
+  // Load profile data from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const loadProfile = async () => {
+      try {
+        const docRef = doc(db, 'users', user.uid);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setProfileData({
+            rank: data.cetRank || '',
+            percentile: data.cetPercentile || '',
+            category: data.category || 'OPEN',
+            gender: data.gender || '',
+            preferredCities: data.preferredCities || [],
+            branches: data.preferredBranches || []
+          });
+
+          if (!data.cetRank || !data.cetPercentile || !data.preferredBranches?.length) {
+            toast.error('Please complete your profile to use the predictor', {
+              duration: 4000,
+              id: 'profile-incomplete'
+            });
+          }
+        } else {
+          toast.error('Profile not found. Please complete your profile first.');
+          setTimeout(() => navigate('/profile'), 2000);
+        }
+      } catch (err) {
+        console.error('Error loading profile:', err);
+        toast.error('Failed to load profile data');
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [user, navigate]);
+
+  // Load saved option form
   useEffect(() => {
     if (user) {
-      const savedProfile = localStorage.getItem(`cetProfile_${user.uid}`);
-      if (savedProfile) {
-        const profileData = JSON.parse(savedProfile);
-        
-        // Auto-fill form with profile data
-        setFormData(prev => ({
-          ...prev,
-          rank: profileData.cetRank || '',
-          percentile: profileData.cetScore ? calculatePercentile(profileData.cetScore) : '',
-          category: profileData.category || 'OPEN'
-        }));
-
-        if (profileData.cetRank || profileData.cetScore) {
-          toast.success('Profile data auto-filled!');
+      const saved = localStorage.getItem(`userOptionForm_${user.uid}`);
+      if (saved) {
+        try {
+          const parsedData = JSON.parse(saved);
+          setOptionForm(Array.isArray(parsedData) ? parsedData : []);
+        } catch (e) {
+          console.error('Error loading option form:', e);
+          setOptionForm([]);
         }
       }
     }
   }, [user]);
 
-  // Helper function for percentile calculation
-  const calculatePercentile = (score) => {
-    const maxScore = 200; // Adjust based on your CET max score
-    return ((score / maxScore) * 100).toFixed(2);
-  };
-
-  const branches = [
-    'Computer Engineering',
-    'Information Technology',
-    'Electronics',
-    'Mechanical Engineering',
-    'Civil Engineering',
-    'Electrical Engineering',
-    'Electronics & Telecommunication',
-    'Artificial Intelligence'
-  ];
-
-  const categories = ['OPEN', 'OBC', 'SC', 'ST', 'EWS', 'TFWS'];
-
-  const handleSubmit = async () => {
-    if (!formData.rank || !formData.percentile) {
-      toast.error('Please fill in all required fields');
+  const handlePredict = async () => {
+    if (!profileData?.rank || !profileData?.percentile) {
+      toast.error('Please add your CET rank and percentile in your profile');
+      setTimeout(() => navigate('/profile'), 1500);
       return;
     }
 
-    if (formData.branches.length === 0) {
-      toast.error('Please select at least one branch');
+    if (!profileData?.branches || profileData.branches.length === 0) {
+      toast.error('Please select preferred branches in your profile');
+      setTimeout(() => navigate('/profile'), 1500);
+      return;
+    }
+
+    if (!profileData?.gender) {
+      toast.error('Please select your gender in your profile for accurate predictions');
+      setTimeout(() => navigate('/profile'), 1500);
       return;
     }
 
@@ -94,11 +124,12 @@ export default function Predictor() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rank: parseInt(formData.rank),
-          percentile: parseFloat(formData.percentile),
-          category: formData.category,
-          city: formData.city || null,
-          branches: formData.branches
+          rank: parseInt(profileData.rank),
+          percentile: parseFloat(profileData.percentile),
+          category: profileData.category,
+          gender: profileData.gender,
+          city: profileData.preferredCities?.[0] || null,
+          branches: profileData.branches
         })
       });
 
@@ -117,29 +148,59 @@ export default function Predictor() {
       }
     } catch (error) {
       console.error('Prediction error:', error);
-      toast.error('Failed: ' + error.message);
+      toast.error('Failed to connect to server. Please ensure the backend is running.');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleBranch = (branch) => {
-    setFormData(prev => ({
-      ...prev,
-      branches: prev.branches.includes(branch)
-        ? prev.branches.filter(b => b !== branch)
-        : [...prev.branches, branch]
-    }));
-  };
+  // Enhanced filtering with Ladies-only, PWD and Defence quota filters
+  const filteredPredictions = predictions.filter(p => {
+    // Search filter
+    const matchesSearch = searchQuery === '' || 
+      (p.college_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.branch || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.city || '').toLowerCase().includes(searchQuery.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    
+    // Quota filter
+    const quotaCategory = (p.quota_category || 'OPEN').toUpperCase();
+    
+    // Always show OPEN and general G-category seats
+    if (quotaCategory === 'OPEN' || quotaCategory.startsWith('G')) {
+      // But exclude ladies-only L-categories for males unless filter is on
+      if (LADIES_ONLY_CATEGORIES.includes(quotaCategory)) {
+        if (profileData?.gender === 'Male' || profileData?.gender === 'M') {
+          return showLadiesOnly; // Males need checkbox to see ladies seats
+        }
+        return true; // Females always see ladies seats
+      }
+      return true;
+    }
+    
+    // Show Ladies-only L-category seats based on filter
+    if (LADIES_ONLY_CATEGORIES.includes(quotaCategory)) {
+      if (profileData?.gender === 'Male' || profileData?.gender === 'M') {
+        return showLadiesOnly; // Males need checkbox
+      }
+      return true; // Females always see
+    }
+    
+    // Show PWD seats only if checkbox is checked
+    if (quotaCategory.includes('PWD')) {
+      return showPWD;
+    }
+    
+    // Show Defence seats only if checkbox is checked
+    if (quotaCategory.includes('DEF') || quotaCategory.includes('DEFENCE')) {
+      return showDefence;
+    }
+    
+    // For any other quota categories, show them by default
+    return true;
+  });
 
-  const filteredPredictions = predictions.filter(p =>
-    searchQuery === '' || 
-    (p.college_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.branch || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.city || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Enhanced add function with category
   const addToOptionForm = (college, category = addCategory) => {
     if (!optionForm.find(c => c.branch_code === college.branch_code)) {
       const newOptionForm = [...optionForm, { 
@@ -150,7 +211,6 @@ export default function Predictor() {
       }];
       setOptionForm(newOptionForm);
       
-      // ✅ Immediately save to localStorage
       localStorage.setItem('currentOptionForm', JSON.stringify(newOptionForm));
       if (user) {
         localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(newOptionForm));
@@ -162,11 +222,16 @@ export default function Predictor() {
     }
   };
 
-  // Bulk add functions
   const addAllToCategory = (colleges, category) => {
     const newColleges = colleges.filter(
       college => !optionForm.find(c => c.branch_code === college.branch_code)
     );
+    
+    if (newColleges.length === 0) {
+      toast.error('All colleges from this category are already added');
+      return;
+    }
+
     const enhancedColleges = newColleges.map((college, index) => ({
       ...college,
       priority: optionForm.length + index + 1,
@@ -176,7 +241,6 @@ export default function Predictor() {
     const newOptionForm = [...optionForm, ...enhancedColleges];
     setOptionForm(newOptionForm);
     
-    // ✅ Immediately save to localStorage
     localStorage.setItem('currentOptionForm', JSON.stringify(newOptionForm));
     if (user) {
       localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(newOptionForm));
@@ -190,26 +254,35 @@ export default function Predictor() {
     return labels[category] || category;
   };
 
-  // ✅ UPGRADE 2: Fixed navigation to OptionFormBuilder
   const navigateToOptionForm = () => {
     if (optionForm.length === 0) {
       toast.error('Please add some colleges to your option form first');
       return;
     }
     
-    // ✅ FIX: Ensure data is saved before navigation
-    localStorage.setItem('currentOptionForm', JSON.stringify(optionForm));
+    const dataToSave = JSON.stringify(optionForm);
+    localStorage.setItem('currentOptionForm', dataToSave);
     if (user) {
-      localStorage.setItem(`userOptionForm_${user.uid}`, JSON.stringify(optionForm));
+      localStorage.setItem(`userOptionForm_${user.uid}`, dataToSave);
     }
     
     navigate('/builder');
   };
 
-  // Group by category
   const highChance = filteredPredictions.filter(p => p.category === 'HIGH');
   const moderateChance = filteredPredictions.filter(p => p.category === 'MODERATE');
   const backupOptions = filteredPredictions.filter(p => p.category === 'BACKUP');
+
+  if (authLoading || loadingProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -268,7 +341,7 @@ export default function Predictor() {
                   </div>
                 </div>
 
-                {/* Option Form Counter with Navigation */}
+                {/* Option Form Counter */}
                 <button
                   onClick={navigateToOptionForm}
                   className="text-right bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors group"
@@ -287,14 +360,11 @@ export default function Predictor() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {step === 1 ? (
-          <StudentFormSection
-            formData={formData}
-            setFormData={setFormData}
-            branches={branches}
-            categories={categories}
-            toggleBranch={toggleBranch}
-            handleSubmit={handleSubmit}
+          <ProfileDisplaySection
+            profileData={profileData}
+            handlePredict={handlePredict}
             loading={loading}
+            navigate={navigate}
           />
         ) : (
           <ResultsSection
@@ -306,8 +376,15 @@ export default function Predictor() {
             addToOptionForm={addToOptionForm}
             addAllToCategory={addAllToCategory}
             optionForm={optionForm}
-            formData={formData}
+            profileData={profileData}
             totalPredictions={filteredPredictions.length}
+            showLadiesOnly={showLadiesOnly}
+            setShowLadiesOnly={setShowLadiesOnly}
+            showPWD={showPWD}
+            setShowPWD={setShowPWD}
+            showDefence={showDefence}
+            setShowDefence={setShowDefence}
+            LADIES_ONLY_CATEGORIES={LADIES_ONLY_CATEGORIES}
           />
         )}
       </main>
@@ -315,122 +392,139 @@ export default function Predictor() {
   );
 }
 
-function StudentFormSection({ formData, setFormData, branches, categories, toggleBranch, handleSubmit, loading }) {
+function ProfileDisplaySection({ profileData, handlePredict, loading, navigate }) {
+  const isProfileComplete = profileData?.rank && profileData?.percentile && 
+                            profileData?.branches?.length > 0 && profileData?.gender;
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-2xl shadow-lg p-8">
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <User className="w-6 h-6 text-blue-600" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-blue-100 rounded-lg">
+                <User className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Your Profile Data</h2>
+                <p className="text-sm text-gray-600">Review your information before predicting</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Enter Your CET Details</h2>
-              <p className="text-sm text-gray-600">We'll find the best colleges for you</p>
-            </div>
+            <button
+              onClick={() => navigate('/profile')}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all"
+            >
+              <Edit className="w-4 h-4" />
+              Edit Profile
+            </button>
           </div>
         </div>
 
+        {!isProfileComplete && (
+          <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800 mb-1">Incomplete Profile</p>
+                <p className="text-sm text-yellow-700">
+                  Please complete your profile with CET rank, percentile, gender, and preferred branches.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                MHT-CET Rank <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={formData.rank}
-                onChange={(e) => setFormData({ ...formData, rank: e.target.value })}
-                placeholder="Enter your rank"
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Percentile <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.percentile}
-                onChange={(e) => setFormData({ ...formData, percentile: e.target.value })}
-                placeholder="Enter percentile (0-100)"
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Category <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              >
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Preferred City (Optional)
-              </label>
-              <input
-                type="text"
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                placeholder="e.g., Pune, Mumbai"
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
+          {/* Academic Information */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border-2 border-blue-100">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Award className="w-5 h-5 text-blue-600" />
+              Academic Details
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600 mb-1">MHT-CET Rank</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {profileData?.rank || (
+                    <span className="text-gray-400 text-lg">Not set</span>
+                  )}
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600 mb-1">Percentile</p>
+                <p className="text-2xl font-bold text-indigo-600">
+                  {profileData?.percentile ? `${profileData.percentile}%` : (
+                    <span className="text-gray-400 text-lg">Not set</span>
+                  )}
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600 mb-1">Category</p>
+                <p className="text-2xl font-bold text-purple-600">
+                  {profileData?.category || 'OPEN'}
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600 mb-1">Gender</p>
+                <p className="text-2xl font-bold text-pink-600">
+                  {profileData?.gender || (
+                    <span className="text-gray-400 text-lg">Not set</span>
+                  )}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Select Branches <span className="text-red-500">*</span>
-              <span className="ml-2 text-xs text-gray-500">({formData.branches.length} selected)</span>
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {branches.map(branch => (
-                <button
-                  key={branch}
-                  type="button"
-                  onClick={() => toggleBranch(branch)}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    formData.branches.includes(branch)
-                      ? 'border-blue-500 bg-blue-50 shadow-md'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
-                      formData.branches.includes(branch)
-                        ? 'bg-blue-600 border-blue-600'
-                        : 'border-gray-300'
-                    }`}>
-                      {formData.branches.includes(branch) && (
-                        <CheckCircle className="w-4 h-4 text-white" />
-                      )}
-                    </div>
-                    <span className={`font-medium ${
-                      formData.branches.includes(branch) ? 'text-blue-700' : 'text-gray-700'
-                    }`}>
-                      {branch}
-                    </span>
+          {/* Preferred Branches */}
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border-2 border-green-100">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-green-600" />
+              Preferred Branches ({profileData?.branches?.length || 0} selected)
+            </h3>
+            {profileData?.branches && profileData.branches.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {profileData.branches.map((branch, index) => (
+                  <div
+                    key={`${branch}-${index}`}
+                    className="bg-white rounded-lg p-3 flex items-center gap-2 shadow-sm"
+                  >
+                    <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-sm font-medium text-gray-700">{branch}</span>
                   </div>
-                </button>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg p-4 text-center text-gray-500">
+                <p className="text-sm">No branches selected. Please update your profile.</p>
+              </div>
+            )}
           </div>
 
+          {/* Preferred Cities */}
+          {profileData?.preferredCities && profileData.preferredCities.length > 0 && (
+            <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border-2 border-orange-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-orange-600" />
+                Preferred Cities ({profileData.preferredCities.length} selected)
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {profileData.preferredCities.map((city, index) => (
+                  <span
+                    key={`${city}-${index}`}
+                    className="bg-white px-4 py-2 rounded-lg text-sm font-medium text-gray-700 shadow-sm"
+                  >
+                    {city}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Predict Button */}
           <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 px-6 rounded-xl font-semibold hover:shadow-xl transform hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handlePredict}
+            disabled={loading || !isProfileComplete}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 px-6 rounded-xl font-semibold hover:shadow-xl transform hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
           >
             {loading ? (
               <>
@@ -440,10 +534,16 @@ function StudentFormSection({ formData, setFormData, branches, categories, toggl
             ) : (
               <>
                 <GraduationCap className="w-5 h-5" />
-                Find My Colleges
+                Predict My Colleges
               </>
             )}
           </button>
+
+          {!isProfileComplete && (
+            <p className="text-center text-sm text-gray-500">
+              Complete your profile to enable predictions
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -459,8 +559,15 @@ function ResultsSection({
   addToOptionForm,
   addAllToCategory,
   optionForm,
-  formData,
-  totalPredictions
+  profileData,
+  totalPredictions,
+  showLadiesOnly,
+  setShowLadiesOnly,
+  showPWD,
+  setShowPWD,
+  showDefence,
+  setShowDefence,
+  LADIES_ONLY_CATEGORIES
 }) {
   const topChoicesRef = React.useRef(null);
   const perfectMatchRef = React.useRef(null);
@@ -473,6 +580,8 @@ function ResultsSection({
       inline: 'nearest'
     });
   };
+
+  const isMale = profileData?.gender === 'Male' || profileData?.gender === 'M';
 
   return (
     <div className="space-y-6">
@@ -487,27 +596,31 @@ function ResultsSection({
             <p className="text-blue-100">Showing colleges matched to your performance</p>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white bg-opacity-20 rounded-lg p-3">
             <p className="text-blue-100 text-sm">Percentile</p>
-            <p className="text-2xl font-bold">{formData.percentile}%</p>
+            <p className="text-2xl font-bold">{profileData?.percentile}%</p>
           </div>
           <div className="bg-white bg-opacity-20 rounded-lg p-3">
             <p className="text-blue-100 text-sm">Rank</p>
-            <p className="text-2xl font-bold">{formData.rank}</p>
+            <p className="text-2xl font-bold">{profileData?.rank}</p>
           </div>
           <div className="bg-white bg-opacity-20 rounded-lg p-3">
             <p className="text-blue-100 text-sm">Category</p>
-            <p className="text-2xl font-bold">{formData.category}</p>
+            <p className="text-2xl font-bold">{profileData?.category}</p>
           </div>
           <div className="bg-white bg-opacity-20 rounded-lg p-3">
-            <p className="text-blue-100 text-sm">Location</p>
-            <p className="text-2xl font-bold">{formData.city || 'Any'}</p>
+            <p className="text-blue-100 text-sm">Gender</p>
+            <p className="text-2xl font-bold">{profileData?.gender || 'N/A'}</p>
+          </div>
+          <div className="bg-white bg-opacity-20 rounded-lg p-3">
+            <p className="text-blue-100 text-sm">Branches</p>
+            <p className="text-2xl font-bold">{profileData?.branches?.length || 0}</p>
           </div>
         </div>
       </div>
 
-      {/* Results Summary - Clickable */}
+      {/* Results Summary */}
       <div className="bg-white rounded-2xl shadow-lg p-6">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Your College Matches: {totalPredictions} Colleges</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -546,8 +659,8 @@ function ResultsSection({
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white rounded-xl shadow-md p-4">
+      {/* Search Bar with Enhanced Quota Filters */}
+      <div className="bg-white rounded-xl shadow-md p-4 space-y-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
@@ -558,6 +671,78 @@ function ResultsSection({
             className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
           />
         </div>
+
+        {/* Quota Filters */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-2 border-t border-gray-200">
+          <p className="text-sm font-semibold text-gray-700">Show Additional Seats:</p>
+          
+          <div className="flex flex-wrap gap-4">
+            {/* Ladies-only filter (only show for males) */}
+            {isMale && (
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={showLadiesOnly}
+                  onChange={(e) => setShowLadiesOnly(e.target.checked)}
+                  className="w-5 h-5 text-pink-600 border-gray-300 rounded focus:ring-2 focus:ring-pink-500 cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-700 group-hover:text-pink-600 transition">
+                  👩 Ladies-only Seats (L-Category)
+                </span>
+              </label>
+            )}
+
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={showPWD}
+                onChange={(e) => setShowPWD(e.target.checked)}
+                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-blue-600 transition">
+                ♿ PWD (Person with Disability) Seats
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={showDefence}
+                onChange={(e) => setShowDefence(e.target.checked)}
+                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-blue-600 transition">
+                🎖️ Defence Quota Seats
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {/* Active Filters Info */}
+        {(showLadiesOnly || showPWD || showDefence) && (
+          <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              Showing {[
+                showLadiesOnly && 'Ladies-only',
+                showPWD && 'PWD',
+                showDefence && 'Defence'
+              ].filter(Boolean).join(', ')} quota seats along with regular seats
+            </span>
+          </div>
+        )}
+
+        {/* Gender-based info message */}
+        {isMale && (
+          <div className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
+            ℹ️ Results filtered for Male candidates. Women-only colleges (like Cummins) and L-category seats are excluded by default.
+          </div>
+        )}
+        {!isMale && profileData?.gender && (
+          <div className="text-xs text-gray-600 bg-pink-50 px-3 py-2 rounded-lg">
+            ℹ️ Results include all colleges including women-only institutions and L-category seats.
+          </div>
+        )}
       </div>
 
       {/* Top Choices */}
@@ -571,6 +756,7 @@ function ResultsSection({
             color="green"
             addToOptionForm={addToOptionForm}
             optionForm={optionForm}
+            LADIES_ONLY_CATEGORIES={LADIES_ONLY_CATEGORIES}
           />
         </div>
       )}
@@ -586,6 +772,7 @@ function ResultsSection({
             color="blue"
             addToOptionForm={addToOptionForm}
             optionForm={optionForm}
+            LADIES_ONLY_CATEGORIES={LADIES_ONLY_CATEGORIES}
           />
         </div>
       )}
@@ -601,6 +788,7 @@ function ResultsSection({
             color="orange"
             addToOptionForm={addToOptionForm}
             optionForm={optionForm}
+            LADIES_ONLY_CATEGORIES={LADIES_ONLY_CATEGORIES}
           />
         </div>
       )}
@@ -638,7 +826,7 @@ function ResultsSection({
             <Search className="w-10 h-10 text-gray-400" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">No Colleges Found</h3>
-          <p className="text-gray-600">Try adjusting your filters or selecting different branches</p>
+          <p className="text-gray-600">Try adjusting your profile, search query, or filter settings</p>
         </div>
       )}
     </div>
@@ -714,7 +902,7 @@ function CategorySummaryCard({ title, subtitle, icon, colleges, color, onScroll,
   );
 }
 
-function CategorySection({ title, subtitle, icon, colleges, color, addToOptionForm, optionForm }) {
+function CategorySection({ title, subtitle, icon, colleges, color, addToOptionForm, optionForm, LADIES_ONLY_CATEGORIES }) {
   const colorClasses = {
     green: {
       border: 'border-green-200',
@@ -752,12 +940,13 @@ function CategorySection({ title, subtitle, icon, colleges, color, addToOptionFo
         </div>
       </div>
       <div className="space-y-4">
-        {colleges.map((college) => (
+        {colleges.map((college, index) => (
           <CollegeCard
-            key={college.branch_code}
+            key={college.branch_code || `college-${index}`}
             college={college}
             onAdd={addToOptionForm}
             isAdded={optionForm.some(c => c.branch_code === college.branch_code)}
+            LADIES_ONLY_CATEGORIES={LADIES_ONLY_CATEGORIES}
           />
         ))}
       </div>
@@ -765,7 +954,13 @@ function CategorySection({ title, subtitle, icon, colleges, color, addToOptionFo
   );
 }
 
-function CollegeCard({ college, onAdd, isAdded }) {
+function CollegeCard({ college, onAdd, isAdded, LADIES_ONLY_CATEGORIES }) {
+  const quotaCategory = (college.quota_category || 'OPEN').toUpperCase();
+  const isLadiesOnly = LADIES_ONLY_CATEGORIES.includes(quotaCategory);
+  const isPWD = quotaCategory.includes('PWD');
+  const isDefence = quotaCategory.includes('DEF') || quotaCategory.includes('DEFENCE');
+  const isSpecialQuota = isLadiesOnly || isPWD || isDefence;
+  
   return (
     <div className="bg-white border-2 border-gray-100 rounded-xl p-6 hover:shadow-xl hover:border-blue-200 transition-all">
       <div className="flex flex-col lg:flex-row lg:items-center gap-6">
@@ -794,16 +989,31 @@ function CollegeCard({ college, onAdd, isAdded }) {
               <p className="font-bold text-gray-900 text-sm">{college.type}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500 mb-1">Last Year Cutoff</p>
+              <p className="text-xs text-gray-500 mb-1">Cutoff</p>
               <p className="font-bold text-indigo-600">{college.historical_cutoff}%</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500 mb-1">Category</p>
-              <p className="font-bold text-gray-900">{college.quota_category}</p>
+            <div className={`rounded-lg p-3 ${
+              isLadiesOnly ? 'bg-pink-50' : 
+              isPWD ? 'bg-blue-50' : 
+              isDefence ? 'bg-green-50' : 
+              'bg-gray-50'
+            }`}>
+              <p className="text-xs text-gray-500 mb-1">Quota</p>
+              <p className={`font-bold text-sm ${
+                isLadiesOnly ? 'text-pink-700' : 
+                isPWD ? 'text-blue-700' : 
+                isDefence ? 'text-green-700' : 
+                'text-gray-900'
+              }`}>
+                {college.quota_category}
+                {isLadiesOnly && ' 👩'}
+                {isPWD && ' ♿'}
+                {isDefence && ' 🎖️'}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
               college.closeness <= 2 
                 ? 'bg-green-100 text-green-700' 
@@ -812,15 +1022,6 @@ function CollegeCard({ college, onAdd, isAdded }) {
                 : 'bg-orange-100 text-orange-700'
             }`}>
               {college.closeness <= 2 ? 'Excellent Match' : college.closeness <= 5 ? 'Good Match' : 'Fair Match'}
-            </div>
-            <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
-              college.admission_probability >= 70 
-                ? 'bg-green-100 text-green-700' 
-                : college.admission_probability >= 50 
-                ? 'bg-blue-100 text-blue-700' 
-                : 'bg-orange-100 text-orange-700'
-            }`}>
-              {college.admission_probability}% Chance
             </div>
           </div>
         </div>

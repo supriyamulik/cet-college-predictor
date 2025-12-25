@@ -6,16 +6,54 @@ from typing import List, Dict, Optional
 
 class CollegePredictor:
     """
-    College Predictor with REALISTIC GAP FILTERING
-    - Top colleges: User percentile + (3 to 6) range
-    - Moderate colleges: User percentile ± 2 range
-    - Backup colleges: User percentile - (3 to 10) range
+    Enhanced College Predictor with:
+    - REALISTIC GAP FILTERING (WIDENED)
+    - Women-only college handling (COEP for males, Cummins for females)
+    - Proper caste filtering (OPEN + specific caste seats)
+    - Enhanced diagnostics
     """
+
+    # Women-only college identifiers
+    WOMEN_ONLY_KEYWORDS = ['women', 'mahila', 'stree', 'ladies', 'kanya', 'balika']
+    
+    # Category mapping for caste filtering
+    CATEGORY_MAP = {
+        'OPEN': ['GOPENS', 'GOPENH', 'LOPENS', 'LOPENH'],
+        'OBC': ['GOBCS', 'GOBCO', 'GOBCH', 'LOBCS', 'LOBCO', 'LOBCH'],
+        'SC': ['GSCS', 'GSCO', 'GSCH', 'LSCS', 'LSCO', 'LSCH'],
+        'ST': ['GSTS', 'GSTO', 'GSTH', 'LSTS', 'LSTO', 'LSTH'],
+        'NT1': ['GRNT1S', 'GRNT1H', 'LRNT1S', 'LRNT1H'],
+        'NT2': ['GRNT2S', 'GRNT2H', 'LRNT2S', 'LRNT2H'],
+        'NT3': ['GRNT3S', 'GRNT3H', 'LRNT3S', 'LRNT3H'],
+        'VJ': ['GVJS', 'GVJH', 'LVJS', 'LVJH'],
+        'EWS': ['GEWSS', 'GEWSH', 'LEWSS', 'LEWSH'],
+        'DEF': ['DEFOPENS', 'DEFOBCS', 'DEFRNT1S', 'DEFRNT2S', 'DEFRNT3S'],
+        'PWD': ['PWDOPENH', 'PWDOPENS', 'PWDOBCS', 'PWDOBCH', 'PWDRNT1S', 
+                'PWDRNT2S', 'PWDRNT3S', 'PWDSEBCS', 'PWDSTS', 'PWDSCS', 'PWDSCH'],
+        'TFWS': ['TFWS'],
+        'MI': ['MI'],
+        'ORPHAN': ['ORPHAN']
+    }
+    
+    # Ladies-only categories (for gender filtering)
+    # These are the actual ladies-only seats that males cannot apply for
+    LADIES_ONLY_CATEGORIES = [
+        'LOPENS', 'LOPENH',  # Ladies Open
+        'LOBCS', 'LOBCO', 'LOBCH',  # Ladies OBC
+        'LSCS', 'LSCO', 'LSCH',  # Ladies SC
+        'LSTS', 'LSTO', 'LSTH',  # Ladies ST
+        'LRNT1S', 'LRNT1H',  # Ladies NT1
+        'LRNT2S', 'LRNT2H',  # Ladies NT2
+        'LRNT3S', 'LRNT3H',  # Ladies NT3
+        'LVJS', 'LVJH',  # Ladies VJ
+        'LEWSS', 'LEWSH'  # Ladies EWS
+    ]
 
     def __init__(self,
                  model_path: str = os.path.join('model', 'xgb_cap_model.pkl'),
                  data_path: str = os.path.join('data', 'flattened_CAP_data done.xlsx'),
-                 college_list_path: str = os.path.join('data', 'unique_colleges_with_city_CAP1_2025.xlsx')):
+                 college_list_path: str = os.path.join('data', 'unique_colleges_with_city_CAP1_2025.xlsx'),
+                 cutoff_2025_path: str = r'D:\CET_Prediction\cet-web-app\backend\data\cutoff_trends\2025.csv'):
         try:
             # Load XGBoost model
             if os.path.exists(model_path):
@@ -31,6 +69,14 @@ class CollegePredictor:
             else:
                 raise FileNotFoundError(f"College data file not found: {data_path}")
 
+            # Load 2025 cutoff data if available
+            if os.path.exists(cutoff_2025_path):
+                self.cutoff_2025 = pd.read_csv(cutoff_2025_path)
+                print(f"✅ 2025 cutoff data loaded: {len(self.cutoff_2025)} records")
+            else:
+                self.cutoff_2025 = None
+                print("⚠️ 2025 cutoff data not found, using existing data only")
+
             # Load college list
             if os.path.exists(college_list_path):
                 self.college_list = pd.read_excel(college_list_path)
@@ -42,7 +88,7 @@ class CollegePredictor:
             self.type_weight_mapping = {
                 "Government": 1.00,
                 "Autonomous / Government": 0.95,
-                "State Technological University": 0.90,
+                "State Technological University": 0.75,
                 "University Department": 0.85,
                 "Autonomous / Aided": 0.80,
                 "Autonomous / Private": 0.75,
@@ -80,6 +126,9 @@ class CollegePredictor:
             print(f"🏙️ Cities: {len(self.available_cities)}")
             print(f"📊 Categories: {len(self.available_categories)}")
             print(f"📉 Cutoff range: {self.min_cutoff:.2f}% - {self.max_cutoff:.2f}%")
+            
+            # Diagnostic: Check for key colleges
+            self._diagnostic_check_colleges()
 
         except Exception as e:
             print(f"❌ Error initializing predictor: {e}")
@@ -87,59 +136,218 @@ class CollegePredictor:
             traceback.print_exc()
             raise
 
+    def _diagnostic_check_colleges(self):
+        """Check if COEP and Cummins exist in dataset"""
+        print(f"\n{'='*60}")
+        print("🔍 DIAGNOSTIC: Checking for Key Colleges")
+        print(f"{'='*60}")
+        
+        # Check COEP
+        coep = self.college_data[
+            self.college_data['college_name'].str.contains('COEP|College of Engineering.*Pune', 
+                                                           case=False, na=False, regex=True)
+        ]
+        if len(coep) > 0:
+            print(f"✅ COEP found: {len(coep)} records")
+            print(f"   Name: {coep['college_name'].iloc[0]}")
+            print(f"   Cutoff range: {coep['closing_percentile'].min():.1f}% - {coep['closing_percentile'].max():.1f}%")
+            print(f"   Categories: {coep['category'].unique()[:5].tolist()}")
+        else:
+            print("❌ COEP not found in dataset!")
+        
+        # Check Cummins
+        cummins = self.college_data[
+            self.college_data['college_name'].str.contains('Cummins', case=False, na=False)
+        ]
+        if len(cummins) > 0:
+            print(f"✅ Cummins found: {len(cummins)} records")
+            print(f"   Name: {cummins['college_name'].iloc[0]}")
+            print(f"   Women-only: {self._is_women_only_college(cummins.iloc[0]['college_name'])}")
+            print(f"   Cutoff range: {cummins['closing_percentile'].min():.1f}% - {cummins['closing_percentile'].max():.1f}%")
+            print(f"   Categories: {cummins['category'].unique()[:5].tolist()}")
+        else:
+            print("❌ Cummins not found in dataset!")
+        
+        print(f"{'='*60}\n")
+
+    def _is_women_only_college(self, college_name: str) -> bool:
+        """Check if college is women-only based on name"""
+        if pd.isna(college_name):
+            return False
+        college_lower = str(college_name).lower()
+        return any(keyword in college_lower for keyword in self.WOMEN_ONLY_KEYWORDS)
+
+    def _get_allowed_categories(self, user_category: str, gender: str = None) -> List[str]:
+        """
+        Get allowed category codes based on user's category and gender.
+        Logic: 
+        - OPEN seats + specific caste seats
+        - Males: Can apply to G-prefixed + DEF/PWD/TFWS/MI (NOT ladies-only L-categories)
+        - Females: Can apply to ALL categories (G + L + DEF/PWD/TFWS/MI)
+        
+        Args:
+            user_category: User's category (OPEN, OBC, SC, ST, DEF, PWD, etc.)
+            gender: 'Male', 'Female', 'M', or 'F' (optional)
+        
+        Returns:
+            List of allowed category codes
+        """
+        user_category_upper = user_category.strip().upper()
+        
+        # Normalize gender input (handle 'Male'/'Female' from frontend)
+        gender_normalized = None
+        if gender:
+            gender_str = str(gender).strip().upper()
+            if gender_str in ['M', 'MALE']:
+                gender_normalized = 'M'
+            elif gender_str in ['F', 'FEMALE']:
+                gender_normalized = 'F'
+        
+        allowed = []
+        
+        # Add OPEN categories based on gender
+        if gender_normalized == 'M':
+            # Males: Only G-prefixed OPEN seats
+            allowed.extend(['GOPENS', 'GOPENH'])
+        else:
+            # Females: All OPEN seats (G + L)
+            allowed.extend(self.CATEGORY_MAP.get('OPEN', []))
+        
+        # Add specific category seats if not OPEN
+        if user_category_upper != 'OPEN' and user_category_upper in self.CATEGORY_MAP:
+            category_seats = self.CATEGORY_MAP[user_category_upper].copy()
+            allowed.extend(category_seats)
+        
+        # CRITICAL: For males, remove ladies-only L-categories (but keep DEF/PWD/TFWS)
+        if gender_normalized == 'M':
+            # Filter out only the actual ladies-only categories
+            allowed = [cat for cat in allowed if cat not in self.LADIES_ONLY_CATEGORIES]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        allowed = [x for x in allowed if not (x in seen or seen.add(x))]
+        
+        return allowed
 
     def predict_colleges(self,
                         rank: int,
                         percentile: float,
                         category: str = 'OPEN',
+                        gender: Optional[str] = None,
                         city: Optional[str] = None,
                         branch: Optional[str] = None,
                         limit: int = 100) -> List[Dict]:
         """
-        Predict colleges with REALISTIC GAP FILTERING
+        Predict colleges with ENHANCED FILTERING
         
-        LOGIC:
-        1. Filter colleges by percentile ranges:
-           - Top: user_percentile + 3 to + 6
-           - Moderate: user_percentile - 2 to + 2
-           - Backup: user_percentile - 10 to - 3
-        2. Sort by closeness to user percentile
-        3. Within same closeness, sort by college quality (historical cutoff)
+        Args:
+            rank: CET rank
+            percentile: CET percentile
+            category: User's category (OPEN, OBC, SC, ST, etc.)
+            gender: 'Male', 'Female', 'M', or 'F' (for women-only college filtering)
+            city: Preferred city
+            branch: Preferred branch
+            limit: Maximum results
+        
+        Returns:
+            List of college predictions
         """
         try:
             print(f"\n{'='*60}")
-            print(f"🎯 PREDICTION WITH GAP FILTERING")
+            print(f"🎯 PREDICTION WITH ENHANCED FILTERING")
             print(f"{'='*60}")
             print(f"Percentile: {percentile}% | Rank: {rank} | Category: {category}")
-            print(f"City: {city or 'All'} | Branch: {branch or 'All'}")
+            print(f"Gender: {gender or 'Not specified'} | City: {city or 'All'} | Branch: {branch or 'All'}")
             print(f"{'='*60}\n")
+
+            # Normalize gender
+            gender_normalized = None
+            if gender:
+                gender_str = str(gender).strip().upper()
+                if gender_str in ['M', 'MALE']:
+                    gender_normalized = 'M'
+                elif gender_str in ['F', 'FEMALE']:
+                    gender_normalized = 'F'
 
             # Start with full dataset
             filtered_df = self.college_data.copy()
+            initial_count = len(filtered_df)
 
-            # === APPLY FILTERS ===
-            if category:
-                category_upper = category.strip().upper()
+            # === GENDER & WOMEN-ONLY COLLEGE FILTERING ===
+            if gender_normalized:
+                if gender_normalized == 'M':
+                    # MALES: Exclude women-only colleges
+                    filtered_df = filtered_df[
+                        ~filtered_df['college_name'].apply(self._is_women_only_college)
+                    ]
+                    # Exclude ladies-only category codes (specific L-categories, NOT all L-prefix)
+                    filtered_df = filtered_df[
+                        ~filtered_df['category'].isin(self.LADIES_ONLY_CATEGORIES)
+                    ]
+                    print(f"✅ MALE FILTER: {initial_count} → {len(filtered_df)} records")
+                    print(f"   Excluded women-only colleges (Cummins, etc.)")
+                    print(f"   Excluded ladies-only categories: {len(self.LADIES_ONLY_CATEGORIES)} types")
+                
+                elif gender_normalized == 'F':
+                    # FEMALES: Include ALL colleges (no filtering)
+                    print(f"✅ FEMALE FILTER: All {len(filtered_df)} records included")
+                    print(f"   ✓ Women-only colleges (Cummins): INCLUDED")
+                    print(f"   ✓ Co-ed colleges (COEP, etc.): INCLUDED")
+                    print(f"   ✓ All category codes: INCLUDED")
+
+            # === CATEGORY FILTERING (OPEN + Specific Caste) ===
+            allowed_categories = self._get_allowed_categories(category, gender)
+            
+            if allowed_categories:
+                before_cat = len(filtered_df)
                 filtered_df = filtered_df[
-                    filtered_df['category'].str.contains(category_upper, case=False, na=False)
+                    filtered_df['category'].isin(allowed_categories)
                 ]
-                print(f"✅ After category filter: {len(filtered_df)} records")
+                print(f"\n✅ CATEGORY FILTER ({category}): {before_cat} → {len(filtered_df)} records")
+                print(f"   Allowed categories: {', '.join(allowed_categories)}")
+                
+                # DIAGNOSTIC: Verify filtering for males
+                if gender_normalized == 'M':
+                    ladies_found = filtered_df[filtered_df['category'].isin(self.LADIES_ONLY_CATEGORIES)]
+                    if len(ladies_found) > 0:
+                        print(f"   ⚠️ WARNING: {len(ladies_found)} ladies-only records found for MALE!")
+                        print(f"   Ladies categories: {ladies_found['category'].unique()[:5]}")
+                    else:
+                        print(f"   ✓ Verified: No ladies-only categories for males")
+                        print(f"   ✓ DEF/PWD/TFWS seats: ALLOWED for males")
 
+            # === CITY FILTER ===
             if city:
+                before_city = len(filtered_df)
                 filtered_df = filtered_df[
                     filtered_df['city'].str.contains(city, case=False, na=False)
                 ]
-                print(f"✅ After city filter: {len(filtered_df)} records")
+                print(f"✅ CITY FILTER ({city}): {before_city} → {len(filtered_df)} records")
 
+            # === BRANCH FILTER ===
             if branch:
+                before_branch = len(filtered_df)
                 filtered_df = filtered_df[
                     filtered_df['branch_name'].str.contains(branch, case=False, na=False)
                 ]
-                print(f"✅ After branch filter: {len(filtered_df)} records")
+                print(f"✅ BRANCH FILTER ({branch}): {before_branch} → {len(filtered_df)} records")
 
+            # === FALLBACK IF NO RESULTS ===
             if filtered_df.empty:
-                print("⚠️ No colleges found. Showing overall recommendations.")
+                print("\n⚠️ NO COLLEGES FOUND! Relaxing filters...")
                 filtered_df = self.college_data.copy()
+                
+                # Reapply only gender filter as fallback
+                if gender_normalized == 'M':
+                    filtered_df = filtered_df[
+                        ~filtered_df['college_name'].apply(self._is_women_only_college)
+                    ]
+                    filtered_df = filtered_df[
+                        ~filtered_df['category'].isin(self.LADIES_ONLY_CATEGORIES)
+                    ]
+                    print(f"   Fallback: {len(filtered_df)} records (males only)")
+                else:
+                    print(f"   Fallback: {len(filtered_df)} records (all colleges)")
 
             # === ML PREDICTION ===
             X_test = filtered_df[['C_normalized', 'Type_Weight']]
@@ -160,55 +368,51 @@ class CollegePredictor:
             # === CALCULATE GAP ===
             filtered_df['percentile_gap'] = percentile - filtered_df['Predicted_Percentile']
 
-            # === APPLY REALISTIC GAP FILTERING ===
-            # Top colleges: +3 to +6 range (slightly higher than user)
-            # Moderate: -2 to +2 range (around user's level)
-            # Backup: -10 to -3 range (below user's level)
+            # === DIAGNOSTIC: Check key colleges before gap filter ===
+            print(f"\n🔍 KEY COLLEGES CHECK (Before Gap Filter):")
+            print(f"   Your percentile: {percentile}%")
             
-            print(f"\n🎯 APPLYING GAP FILTER:")
-            print(f"   Top Colleges: {percentile + 3}% to {percentile + 6}% range")
-            print(f"   Moderate: {percentile - 2}% to {percentile + 2}% range")
-            print(f"   Backup: {percentile - 10}% to {percentile - 3}% range")
+            coep_check = filtered_df[filtered_df['college_name'].str.contains(
+                'COEP|College of Engineering.*Pune', case=False, na=False, regex=True
+            )]
+            if len(coep_check) > 0:
+                print(f"   ✅ COEP: {len(coep_check)} records | Predicted: {coep_check['Predicted_Percentile'].min():.1f}% - {coep_check['Predicted_Percentile'].max():.1f}%")
             
-            # Filter based on realistic ranges
+            cummins_check = filtered_df[filtered_df['college_name'].str.contains(
+                'Cummins', case=False, na=False
+            )]
+            if len(cummins_check) > 0:
+                print(f"   ✅ Cummins: {len(cummins_check)} records | Predicted: {cummins_check['Predicted_Percentile'].min():.1f}% - {cummins_check['Predicted_Percentile'].max():.1f}%")
+
+            # === APPLY WIDENED GAP FILTERING ===
+            print(f"\n🎯 APPLYING WIDENED GAP FILTER:")
+            print(f"   Range: {percentile - 15:.1f}% to {percentile + 10:.1f}%")
+            
             realistic_df = filtered_df[
-                # Top colleges (aspirational but realistic)
-                ((filtered_df['Predicted_Percentile'] >= percentile + 3) & 
-                 (filtered_df['Predicted_Percentile'] <= percentile + 6)) |
-                # Moderate colleges (perfect match)
-                ((filtered_df['Predicted_Percentile'] >= percentile - 2) & 
-                 (filtered_df['Predicted_Percentile'] <= percentile + 2)) |
-                # Backup colleges (safety net)
-                ((filtered_df['Predicted_Percentile'] >= percentile - 10) & 
-                 (filtered_df['Predicted_Percentile'] <= percentile - 3))
+                (filtered_df['Predicted_Percentile'] >= percentile - 15) &
+                (filtered_df['Predicted_Percentile'] <= percentile + 10)
             ].copy()
 
-            print(f"\n✅ After gap filtering: {len(realistic_df)} colleges (removed unrealistic matches)")
+            print(f"✅ After gap filtering: {len(realistic_df)} colleges")
 
+            # === FALLBACK: Even wider range if needed ===
             if realistic_df.empty:
-                print("⚠️ No colleges in realistic range. Relaxing filter...")
-                # Fallback: allow ±10 range if no colleges found
+                print("⚠️ No colleges in range! Using wider ±20% filter...")
                 realistic_df = filtered_df[
-                    (filtered_df['Predicted_Percentile'] >= percentile - 10) & 
-                    (filtered_df['Predicted_Percentile'] <= percentile + 10)
+                    (filtered_df['Predicted_Percentile'] >= percentile - 20) & 
+                    (filtered_df['Predicted_Percentile'] <= percentile + 15)
                 ].copy()
                 print(f"   Relaxed filter: {len(realistic_df)} colleges")
 
-            # === CALCULATE PROBABILITY BASED ON GAP ===
+            # === CALCULATE PROBABILITY ===
             def calculate_probability(gap):
-                # More realistic probability calculation
-                if gap >= 5:      # Way above (top colleges)
-                    return 90.0
-                elif gap >= 3:    # Above (stretch colleges)
-                    return 80.0
-                elif gap >= 0:    # At or slightly above
-                    return 70.0
-                elif gap >= -2:   # Slightly below (moderate)
-                    return 60.0
-                elif gap >= -5:   # Below (backup)
-                    return 50.0
-                else:             # Well below (safety)
-                    return 40.0
+                if gap >= 5:      return 90.0
+                elif gap >= 3:    return 80.0
+                elif gap >= 0:    return 70.0
+                elif gap >= -2:   return 60.0
+                elif gap >= -5:   return 50.0
+                elif gap >= -10:  return 40.0
+                else:             return 30.0
 
             realistic_df['admission_probability'] = realistic_df['percentile_gap'].apply(
                 calculate_probability
@@ -216,19 +420,16 @@ class CollegePredictor:
 
             # === CATEGORIZE ===
             def categorize(prob):
-                if prob >= 70:
-                    return "HIGH"
-                elif prob >= 50:
-                    return "MODERATE"
-                else:
-                    return "BACKUP"
+                if prob >= 70:    return "HIGH"
+                elif prob >= 50:  return "MODERATE"
+                else:             return "BACKUP"
 
             realistic_df['category_tag'] = realistic_df['admission_probability'].apply(categorize)
 
-            # === CALCULATE CLOSENESS (for sorting) ===
+            # === CALCULATE CLOSENESS ===
             realistic_df['closeness'] = abs(percentile - realistic_df['Predicted_Percentile'])
 
-            # === DEDUPLICATE BY COLLEGE (Keep best branch per college) ===
+            # === DEDUPLICATE BY COLLEGE ===
             realistic_df = realistic_df.sort_values(
                 by=['closeness', 'closing_percentile', 'Type_Weight'],
                 ascending=[True, False, False]
@@ -236,13 +437,13 @@ class CollegePredictor:
             
             recommendations = realistic_df.groupby('college_name', as_index=False).first()
 
-            # === FINAL SORT: Closeness first, then quality ===
+            # === FINAL SORT ===
             recommendations = recommendations.sort_values(
                 by=['closeness', 'closing_percentile', 'Type_Weight'],
                 ascending=[True, False, False]
             )
 
-            print(f"\n📊 FILTERED RESULTS:")
+            print(f"\n📊 FINAL RESULTS:")
             high_prob = recommendations[recommendations['admission_probability'] >= 70]
             mod_prob = recommendations[(recommendations['admission_probability'] >= 50) & 
                                       (recommendations['admission_probability'] < 70)]
@@ -279,7 +480,8 @@ class CollegePredictor:
                     # Metadata
                     'quota_category': str(row.get('category', 'N/A')),
                     'round': int(row.get('round', 1)),
-                    'ml_model': 'XGBoost (Gap Filtered)'
+                    'is_women_only': self._is_women_only_college(row['college_name']),
+                    'ml_model': 'XGBoost (Enhanced)'
                 }
                 results.append(result)
 
@@ -302,15 +504,15 @@ class CollegePredictor:
             traceback.print_exc()
             return []
 
-
     def predict_multiple_branches(self,
                                   rank: int,
                                   percentile: float,
                                   category: str,
                                   branches: List[str],
+                                  gender: Optional[str] = None,
                                   city: Optional[str] = None,
                                   limit: int = 100) -> List[Dict]:
-        """Predict for multiple branches with gap filtering"""
+        """Predict for multiple branches with all filters"""
         all_results = []
         
         for branch in branches:
@@ -318,6 +520,7 @@ class CollegePredictor:
                 rank=rank,
                 percentile=percentile,
                 category=category,
+                gender=gender,
                 city=city,
                 branch=branch,
                 limit=limit
@@ -342,7 +545,6 @@ class CollegePredictor:
         
         return unique_results[:limit]
 
-
     def get_category_emoji(self, category: str) -> str:
         emojis = {
             "HIGH": "🟢",
@@ -350,7 +552,6 @@ class CollegePredictor:
             "BACKUP": "🟠"
         }
         return emojis.get(category, "⚪")
-
 
     def get_statistics(self, predictions: List[Dict]) -> Dict:
         if not predictions:
@@ -386,7 +587,6 @@ class CollegePredictor:
             'highest_probability': max(probabilities),
             'lowest_probability': min(probabilities)
         }
-
 
     def get_college_info(self) -> Dict:
         return {
