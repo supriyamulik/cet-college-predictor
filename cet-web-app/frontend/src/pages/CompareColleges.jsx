@@ -1,7 +1,5 @@
-// D:\CET_Prediction\cet-web-app\frontend\src\pages\CompareColleges.jsx
-
 import React, { useState, useEffect } from 'react';
-import { Search, Filter as FilterIcon, ArrowRight, Download } from 'lucide-react';
+import { Search, Filter as FilterIcon, ArrowRight, Download, AlertCircle } from 'lucide-react';
 import { useComparison } from '../context/ComparisonContext';
 import { collegeApi } from '../services/collegeApi';
 import CollegeCard from '../components/compare/CollegeCard';
@@ -34,6 +32,7 @@ const CompareColleges = () => {
   const [showComparison, setShowComparison] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchColleges();
@@ -50,12 +49,13 @@ const CompareColleges = () => {
   const fetchColleges = async () => {
     try {
       setLoading(true);
-      // Only city, type, year filters - NO branch/category
+      setError(null);
       const data = await collegeApi.getAllColleges(filters);
-      setColleges(data);
+      setColleges(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching colleges:', error);
-      alert('Failed to fetch colleges. Please try again.');
+      setError('Failed to fetch colleges. Please try again.');
+      setColleges([]);
     } finally {
       setLoading(false);
     }
@@ -64,10 +64,13 @@ const CompareColleges = () => {
   const debouncedSearch = debounce(async (query) => {
     try {
       setLoading(true);
+      setError(null);
       const data = await collegeApi.searchColleges(query, filters);
-      setColleges(data);
+      setColleges(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error searching colleges:', error);
+      setError('Search failed. Please try again.');
+      setColleges([]);
     } finally {
       setLoading(false);
     }
@@ -86,20 +89,52 @@ const CompareColleges = () => {
 
     try {
       setLoading(true);
+      setError(null);
+      
       const collegeCodes = selectedColleges.map(c => c.college_code);
-      const data = await collegeApi.compareColleges(collegeCodes, selectedBranch, selectedCategory);
-      setComparisonData(data);
+      const response = await collegeApi.compareColleges(collegeCodes, selectedBranch, selectedCategory);
+      
+      const comparisonDataToSet = response.comparison_data || response;
+      
+      console.log('Comparison response:', response);
+      console.log('Setting comparison data:', comparisonDataToSet);
+      
+      setComparisonData(comparisonDataToSet);
       setShowComparison(true);
     } catch (error) {
       console.error('Error comparing colleges:', error);
-      alert('Failed to compare colleges. Please try again.');
+      setError(error.response?.data?.error || 'Failed to compare colleges. Please try again.');
+      alert(error.response?.data?.error || 'Failed to compare colleges. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleExport = () => {
-    alert('Export feature coming soon!');
+    try {
+      const exportData = {
+        colleges: selectedColleges.map(c => ({
+          code: c.college_code,
+          name: c.college_name,
+          city: c.city
+        })),
+        branch: selectedBranch,
+        category: selectedCategory,
+        data: comparisonData
+      };
+      
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `college-comparison-${selectedBranch}-${selectedCategory}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+    }
   };
 
   return (
@@ -111,16 +146,33 @@ const CompareColleges = () => {
             Compare Engineering Colleges
           </h1>
           <p className="text-gray-600">
-            Select colleges first, then choose branch and category to compare cutoff trends
+            Select colleges to compare, then choose branch and category to view cutoff trends (2021-2025)
           </p>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-red-800 font-medium">Error</p>
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-600 hover:text-red-800"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {!showComparison ? (
           /* Selection View */
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Filters Sidebar */}
+            {/* Filters Sidebar - Only City and Type */}
             <div className={`lg:col-span-1 ${showFilters ? 'block' : 'hidden lg:block'}`}>
               <FilterSidebar
                 currentFilters={filters}
@@ -175,13 +227,18 @@ const CompareColleges = () => {
                   
                   {selectedColleges.length >= 2 && (
                     <div className="mt-4 space-y-3">
-                      <BranchCategorySelector
-                        selectedColleges={selectedColleges}
-                        selectedBranch={selectedBranch}
-                        selectedCategory={selectedCategory}
-                        onBranchChange={setSelectedBranch}
-                        onCategoryChange={setSelectedCategory}
-                      />
+                      <div className="border-t pt-4">
+                        <p className="text-sm text-gray-600 mb-3">
+                          Select branch and category to compare cutoff trends:
+                        </p>
+                        <BranchCategorySelector
+                          selectedColleges={selectedColleges}
+                          selectedBranch={selectedBranch}
+                          selectedCategory={selectedCategory}
+                          onBranchChange={setSelectedBranch}
+                          onCategoryChange={setSelectedCategory}
+                        />
+                      </div>
                       <button
                         onClick={handleCompare}
                         disabled={loading || !selectedBranch || !selectedCategory}
@@ -190,7 +247,7 @@ const CompareColleges = () => {
                         {loading ? (
                           <>
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                            Loading...
+                            Loading Comparison Data...
                           </>
                         ) : (
                           <>
@@ -209,6 +266,7 @@ const CompareColleges = () => {
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">
                   Available Colleges
                   {filters.city && <span className="text-gray-600 font-normal"> in {filters.city}</span>}
+                  {filters.type && <span className="text-gray-600 font-normal"> - {filters.type}</span>}
                 </h2>
                 
                 {loading ? (
@@ -223,13 +281,30 @@ const CompareColleges = () => {
                         key={college.college_code}
                         college={college}
                         onSelect={addCollege}
+                        onRemove={removeCollege}
                         isSelected={selectedColleges.some(c => c.college_code === college.college_code)}
+                        disabled={
+                          !selectedColleges.some(c => c.college_code === college.college_code) &&
+                          selectedColleges.length >= MAX_COLLEGES_TO_COMPARE
+                        }
                       />
                     ))}
                   </div>
                 ) : (
                   <div className="text-center py-12 text-gray-500">
-                    {STATUS_MESSAGES.NO_DATA}
+                    {searchQuery ? (
+                      <div>
+                        <p className="text-lg mb-2">No colleges found for "{searchQuery}"</p>
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Clear search
+                        </button>
+                      </div>
+                    ) : (
+                      STATUS_MESSAGES.NO_DATA
+                    )}
                   </div>
                 )}
               </div>
@@ -238,7 +313,7 @@ const CompareColleges = () => {
         ) : (
           /* Comparison View */
           <div>
-            <div className="bg-white rounded-lg shadow-sm p-4 mb-6 flex justify-between items-center">
+            <div className="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <button
                 onClick={() => setShowComparison(false)}
                 className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
@@ -246,14 +321,14 @@ const CompareColleges = () => {
                 ← Back to Selection
               </button>
               <div className="text-sm text-gray-600">
-                Comparing: <span className="font-semibold">{selectedBranch}</span> - <span className="font-semibold">{selectedCategory}</span>
+                Comparing: <span className="font-semibold">{selectedBranch}</span> | Category: <span className="font-semibold">{selectedCategory}</span>
               </div>
               <button
                 onClick={handleExport}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
               >
                 <Download className="w-5 h-5" />
-                Export
+                Export Data
               </button>
             </div>
 
@@ -268,7 +343,7 @@ const CompareColleges = () => {
               {/* Comparison Graph */}
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">
-                  Cutoff Trends (2021-2025)
+                  Cutoff Trends Over Time (2021-2025)
                 </h2>
                 <ComparisonGraph
                   colleges={selectedColleges}
@@ -279,7 +354,7 @@ const CompareColleges = () => {
               {/* Comparison Table */}
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">
-                  Detailed Comparison
+                  Detailed Year-by-Year Comparison
                 </h2>
                 <ComparisonTable
                   colleges={selectedColleges}

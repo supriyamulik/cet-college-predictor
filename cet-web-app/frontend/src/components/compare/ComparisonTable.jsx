@@ -1,159 +1,191 @@
-// D:\CET_Prediction\cet-web-app\frontend\src\components\compare\ComparisonTable.jsx
-
+// src/components/compare/ComparisonTable.jsx
 import React from 'react';
-import { formatRank } from '../../utils/helpers';
+import { ExternalLink, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 const ComparisonTable = ({ colleges, comparisonData }) => {
   if (!comparisonData || Object.keys(comparisonData).length === 0) {
     return (
-      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-        <p className="text-gray-500 text-lg">No comparison data available</p>
+      <div className="text-center py-8 text-gray-500">
+        No comparison data available
       </div>
     );
   }
 
-  const years = ['2021', '2022', '2023', '2024', '2025'];
-
-  // Check if we have any data
-  const hasAnyData = colleges.some(college => {
-    const collegeData = comparisonData[college.college_code];
-    return collegeData && Array.isArray(collegeData) && collegeData.length > 0;
-  });
-
-  if (!hasAnyData) {
-    return (
-      <div className="text-center py-12 bg-yellow-50 rounded-lg border-2 border-yellow-200">
-        <p className="text-yellow-800 text-lg font-medium">No data available for comparison</p>
-        <p className="text-yellow-600 text-sm mt-2">
-          Try selecting different colleges or a different branch/category combination.
-        </p>
-      </div>
-    );
-  }
-
-  const getYearData = (college, year) => {
-    const collegeData = comparisonData[college.college_code];
-    
-    if (!collegeData || !Array.isArray(collegeData)) {
-      return null;
-    }
-    
-    // Find data for this year - handle different field name variations
-    const yearData = collegeData.find(d => {
-      const dataYear = String(d.year || d.Year || d.YEAR || '');
-      return dataYear === year;
+  // Get all unique years across all colleges
+  const allYears = new Set();
+  Object.values(comparisonData).forEach(collegeData => {
+    collegeData.forEach(record => {
+      allYears.add(record.year);
     });
-    
-    return yearData;
+  });
+  const years = Array.from(allYears).sort();
+
+  // Helper function to get rank for a specific college and year
+  const getRankForYear = (collegeCode, year) => {
+    const collegeData = comparisonData[collegeCode] || [];
+    const record = collegeData.find(r => r.year === year);
+    return record?.closing_rank || null;
   };
 
-  const formatPercentile = (value) => {
-    if (!value && value !== 0) return 'N/A';
-    const num = parseFloat(value);
-    return isNaN(num) ? 'N/A' : `${num.toFixed(2)}%`;
+  // Helper function to get percentile for a specific college and year
+  const getPercentileForYear = (collegeCode, year) => {
+    const collegeData = comparisonData[collegeCode] || [];
+    const record = collegeData.find(r => r.year === year);
+    return record?.closing_percentile || null;
   };
 
-  const getRankTrend = (college) => {
-    const data = comparisonData[college.college_code];
-    if (!data || data.length < 2) return null;
+  // Calculate trend (comparing first and last available year)
+  const getTrend = (collegeCode) => {
+    const collegeData = comparisonData[collegeCode] || [];
+    if (collegeData.length < 2) return null;
 
-    // Sort by year
-    const sortedData = [...data]
-      .filter(d => d.closing_rank || d.Closing_Rank)
-      .sort((a, b) => {
-        const yearA = parseInt(a.year || a.Year || 0);
-        const yearB = parseInt(b.year || b.Year || 0);
-        return yearA - yearB;
-      });
+    const sortedData = [...collegeData].sort((a, b) => a.year.localeCompare(b.year));
+    const firstRank = sortedData[0]?.closing_rank;
+    const lastRank = sortedData[sortedData.length - 1]?.closing_rank;
 
-    if (sortedData.length < 2) return null;
+    if (!firstRank || !lastRank) return null;
 
-    const firstRank = parseInt(sortedData[0].closing_rank || sortedData[0].Closing_Rank);
-    const lastRank = parseInt(sortedData[sortedData.length - 1].closing_rank || sortedData[sortedData.length - 1].Closing_Rank);
+    const change = lastRank - firstRank;
+    const changePercent = ((change / firstRank) * 100).toFixed(1);
 
-    if (firstRank < lastRank) {
-      return { direction: 'down', text: 'Decreasing Competition' };
-    } else if (firstRank > lastRank) {
-      return { direction: 'up', text: 'Increasing Competition' };
-    }
-    return { direction: 'stable', text: 'Stable' };
+    return {
+      change,
+      changePercent,
+      direction: change > 0 ? 'easier' : change < 0 ? 'harder' : 'stable'
+    };
+  };
+
+  // Get college name from colleges array
+  const getCollegeName = (collegeCode) => {
+    const college = colleges.find(c => c.college_code === collegeCode);
+    return college?.college_name || `College ${collegeCode}`;
+  };
+
+  // Get college URL
+  const getCollegeUrl = (collegeCode) => {
+    const college = colleges.find(c => c.college_code === collegeCode);
+    const collegeData = comparisonData[collegeCode]?.[0];
+    return college?.college_url || collegeData?.college_url || null;
   };
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="bg-gray-50 border-b-2 border-gray-200">
+            <th className="px-4 py-3 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10">
               College
             </th>
+            <th className="px-4 py-3 text-center font-semibold text-gray-700">
+              Trend
+            </th>
             {years.map(year => (
-              <th key={year} className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th key={year} className="px-4 py-3 text-center font-semibold text-gray-700 whitespace-nowrap">
                 {year}
               </th>
             ))}
-            <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Trend
-            </th>
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
+        <tbody>
           {colleges.map((college, idx) => {
-            const trend = getRankTrend(college);
+            const collegeCode = college.college_code;
+            const trend = getTrend(collegeCode);
+            const collegeUrl = getCollegeUrl(collegeCode);
+
             return (
-              <tr key={college.college_code} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="px-6 py-4 whitespace-normal text-sm font-medium text-gray-900 sticky left-0 bg-inherit z-10">
-                  <div className="max-w-xs">
-                    <div className="font-semibold">{college.college_name.split(',')[0]}</div>
-                    <div className="text-xs text-gray-500">{college.city}</div>
+              <tr
+                key={collegeCode}
+                className={`border-b border-gray-200 hover:bg-gray-50 transition-colors ${
+                  idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                }`}
+              >
+                {/* College Name with URL */}
+                <td className="px-4 py-3 sticky left-0 bg-inherit z-10 border-r border-gray-200">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium text-gray-900 text-sm">
+                      {getCollegeName(collegeCode)}
+                    </span>
+                    {collegeUrl && (
+                      <a
+                        href={collegeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Visit Website
+                      </a>
+                    )}
                   </div>
                 </td>
+
+                {/* Trend */}
+                <td className="px-4 py-3 text-center">
+                  {trend ? (
+                    <div className="flex flex-col items-center gap-1">
+                      {trend.direction === 'harder' && (
+                        <>
+                          <TrendingUp className="w-5 h-5 text-red-600" />
+                          <span className="text-xs text-red-600 font-medium">
+                            Harder
+                          </span>
+                          <span className="text-xs text-gray-600">
+                            {Math.abs(trend.changePercent)}%
+                          </span>
+                        </>
+                      )}
+                      {trend.direction === 'easier' && (
+                        <>
+                          <TrendingDown className="w-5 h-5 text-green-600" />
+                          <span className="text-xs text-green-600 font-medium">
+                            Easier
+                          </span>
+                          <span className="text-xs text-gray-600">
+                            {Math.abs(trend.changePercent)}%
+                          </span>
+                        </>
+                      )}
+                      {trend.direction === 'stable' && (
+                        <>
+                          <Minus className="w-5 h-5 text-gray-600" />
+                          <span className="text-xs text-gray-600 font-medium">
+                            Stable
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-400">N/A</span>
+                  )}
+                </td>
+
+                {/* Year Data */}
                 {years.map(year => {
-                  const yearData = getYearData(college, year);
-                  const rank = yearData?.closing_rank || yearData?.Closing_Rank;
-                  const percentile = yearData?.closing_percentile || yearData?.Closing_Percentile;
-                  
+                  const rank = getRankForYear(collegeCode, year);
+                  const percentile = getPercentileForYear(collegeCode, year);
+
                   return (
-                    <td key={year} className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                      {yearData ? (
-                        <div>
-                          <div className="font-semibold text-gray-900">
-                            {rank ? formatRank(rank) : 'N/A'}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {formatPercentile(percentile)}
-                          </div>
+                    <td
+                      key={year}
+                      className="px-4 py-3 text-center whitespace-nowrap"
+                    >
+                      {rank ? (
+                        <div className="flex flex-col">
+                          <span className="font-medium text-gray-900">
+                            {rank.toLocaleString()}
+                          </span>
+                          {percentile && (
+                            <span className="text-xs text-gray-500">
+                              {percentile.toFixed(2)}%
+                            </span>
+                          )}
                         </div>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-400 text-sm">-</span>
                       )}
                     </td>
                   );
                 })}
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                  {trend ? (
-                    <div className="flex items-center justify-center gap-1">
-                      {trend.direction === 'up' && (
-                        <span className="text-red-500">↑</span>
-                      )}
-                      {trend.direction === 'down' && (
-                        <span className="text-green-500">↓</span>
-                      )}
-                      {trend.direction === 'stable' && (
-                        <span className="text-blue-500">→</span>
-                      )}
-                      <span className={`text-xs ${
-                        trend.direction === 'up' ? 'text-red-600' :
-                        trend.direction === 'down' ? 'text-green-600' :
-                        'text-blue-600'
-                      }`}>
-                        {trend.text}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-gray-400 text-xs">N/A</span>
-                  )}
-                </td>
               </tr>
             );
           })}
@@ -161,47 +193,21 @@ const ComparisonTable = ({ colleges, comparisonData }) => {
       </table>
 
       {/* Legend */}
-      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <h4 className="text-sm font-semibold text-gray-700 mb-2">Legend:</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600">
-          <div className="flex items-center gap-2">
-            <span className="text-green-500 text-lg">↓</span>
-            <span>Decreasing Competition (Rank going up over years)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-red-500 text-lg">↑</span>
-            <span>Increasing Competition (Rank improving over years)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-blue-500 text-lg">→</span>
-            <span>Stable Competition</span>
-          </div>
+      <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
+        <div className="flex items-center gap-2">
+          <div className="font-semibold">Trend:</div>
+          <TrendingUp className="w-4 h-4 text-red-600" />
+          <span>Competition Increasing</span>
         </div>
-        <div className="mt-2 text-xs text-gray-500">
-          <strong>Note:</strong> Lower closing rank means higher competition. Percentile shown below rank.
+        <div className="flex items-center gap-2">
+          <TrendingDown className="w-4 h-4 text-green-600" />
+          <span>Competition Decreasing</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Minus className="w-4 h-4 text-gray-600" />
+          <span>Stable</span>
         </div>
       </div>
-
-      {/* Debug Info */}
-      {process.env.NODE_ENV === 'development' && (
-        <details className="mt-4">
-          <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
-            Debug Info (click to expand)
-          </summary>
-          <div className="mt-2 p-3 bg-gray-100 rounded text-xs font-mono">
-            <div><strong>Colleges:</strong> {colleges.length}</div>
-            <div><strong>Comparison Data Keys:</strong> {Object.keys(comparisonData).join(', ')}</div>
-            {colleges.map(college => {
-              const data = comparisonData[college.college_code];
-              return (
-                <div key={college.college_code} className="mt-2">
-                  <strong>{college.college_code}:</strong> {data ? `${data.length} records` : 'No data'}
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
     </div>
   );
 };

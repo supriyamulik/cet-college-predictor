@@ -1,8 +1,6 @@
-// D:\CET_Prediction\cet-web-app\frontend\src\components\compare\FilterSidebar.jsx
-
 import React, { useState, useEffect } from 'react';
 import { Filter, X } from 'lucide-react';
-import { COLLEGE_TYPES, YEARS } from '../../utils/constants';
+import { COLLEGE_TYPES } from '../../utils/constants';
 import { collegeApi } from '../../services/collegeApi';
 
 const FilterSidebar = ({ onFilterChange, currentFilters, onClose }) => {
@@ -37,8 +35,7 @@ const FilterSidebar = ({ onFilterChange, currentFilters, onClose }) => {
   const handleReset = () => {
     onFilterChange({
       city: '',
-      type: '',
-      year: '2025'
+      type: ''
     });
   };
 
@@ -81,25 +78,6 @@ const FilterSidebar = ({ onFilterChange, currentFilters, onClose }) => {
       ) : (
         /* Filter Options */
         <div className="space-y-6">
-          {/* Year Filter */}
-          <div>
-            <label htmlFor="year-filter" className="block text-sm font-medium text-gray-700 mb-2">
-              Year
-            </label>
-            <select
-              id="year-filter"
-              value={currentFilters.year || '2025'}
-              onChange={(e) => handleFilterChange('year', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-            >
-              {YEARS.map(year => (
-                <option key={year.value} value={year.value}>
-                  {year.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* City Filter */}
           <div>
             <label htmlFor="city-filter" className="block text-sm font-medium text-gray-700 mb-2">
@@ -141,10 +119,15 @@ const FilterSidebar = ({ onFilterChange, currentFilters, onClose }) => {
           </div>
 
           {/* Info Message */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-xs text-blue-800">
-              💡 Select colleges first, then choose branch and category for comparison
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-800 font-medium mb-1">
+              How it works:
             </p>
+            <ol className="text-xs text-blue-700 space-y-1 ml-4 list-decimal">
+              <li>Filter and select colleges to compare</li>
+              <li>Choose branch and category</li>
+              <li>View cutoff trends (2021-2025)</li>
+            </ol>
           </div>
 
           {/* Reset Button */}

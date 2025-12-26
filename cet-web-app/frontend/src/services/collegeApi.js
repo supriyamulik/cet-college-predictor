@@ -1,67 +1,88 @@
-// D:\CET_Prediction\cet-web-app\frontend\src\services\collegeApi.js
-
+// src/services/collegeApi.js
 import axios from 'axios';
 
-// Get API base URL from environment variable or use default
+// Use Vite's import.meta.env for environment variables
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 120000, // Increased to 2 minutes
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   },
-  timeout: 30000 // 30 second timeout
 });
 
-// Add request interceptor to include auth token if available
+// Request interceptor for debugging
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    console.log(`🔵 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
+      params: config.params,
+      data: config.data
+    });
     return config;
   },
   (error) => {
+    console.error('❌ Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Add response interceptor for error handling
+// Response interceptor for error handling and debugging
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(`✅ API Response: ${response.config.url}`, {
+      status: response.status,
+      dataLength: Array.isArray(response.data) ? response.data.length : 'N/A'
+    });
+    return response;
+  },
   (error) => {
-    if (error.response) {
-      // Server responded with error status
-      console.error('API Error:', error.response.data);
-      console.error('Status:', error.response.status);
+    if (error.code === 'ECONNABORTED') {
+      console.error('⏱️ Request Timeout:', {
+        url: error.config?.url,
+        timeout: error.config?.timeout,
+        message: 'Server took too long to respond. Check if backend is running and optimized.'
+      });
+    } else if (error.response) {
+      console.error('❌ API Error Response:', {
+        url: error.config?.url,
+        status: error.response.status,
+        data: error.response.data
+      });
     } else if (error.request) {
-      // Request made but no response received
-      console.error('No response from server');
+      console.error('❌ No Response from Server:', {
+        url: error.config?.url,
+        message: error.message,
+        hint: 'Backend server might not be running'
+      });
     } else {
-      // Error in request setup
-      console.error('Request error:', error.message);
+      console.error('❌ Request Setup Error:', error.message);
     }
     return Promise.reject(error);
   }
 );
 
-// College Comparison API functions
 export const collegeApi = {
-  /**
-   * Get all colleges with optional filters
-   * @param {Object} filters - Filter options (city, type, branch, category, year)
-   * @returns {Promise<Array>} Array of college objects
-   */
+  // Health check - Use this to test if backend is running
+  healthCheck: async () => {
+    try {
+      const response = await api.get('/health');
+      console.log('💚 Backend is healthy:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('💔 Backend health check failed:', error.message);
+      throw error;
+    }
+  },
+
+  // Get all colleges (WITHOUT branch/category filtering)
   getAllColleges: async (filters = {}) => {
     try {
       const params = new URLSearchParams();
-      Object.keys(filters).forEach(key => {
-        if (filters[key]) {
-          params.append(key, filters[key]);
-        }
-      });
+      if (filters.city) params.append('city', filters.city);
+      if (filters.type) params.append('type', filters.type);
+      // Removed year filter as per requirements
+      
       const response = await api.get(`/colleges?${params.toString()}`);
       return response.data;
     } catch (error) {
@@ -70,19 +91,14 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Search colleges by name with optional filters
-   * @param {string} query - Search query string
-   * @param {Object} filters - Additional filter options
-   * @returns {Promise<Array>} Array of matching colleges
-   */
+  // Search colleges by name
   searchColleges: async (query, filters = {}) => {
     try {
-      const params = {
-        q: query,
-        ...filters
-      };
-      const response = await api.get('/colleges/search', { params });
+      const params = new URLSearchParams({ q: query });
+      if (filters.city) params.append('city', filters.city);
+      if (filters.type) params.append('type', filters.type);
+      
+      const response = await api.get(`/colleges/search?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Error searching colleges:', error);
@@ -90,53 +106,45 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get specific college details by college code
-   * @param {string|number} collegeCode - College code
-   * @returns {Promise<Object>} College details
-   */
-  getCollegeById: async (collegeCode) => {
+  // Get specific college by code
+  getCollegeByCode: async (collegeCode) => {
     try {
       const response = await api.get(`/colleges/${collegeCode}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching college by ID:', error);
+      console.error(`Error fetching college ${collegeCode}:`, error);
       throw error;
     }
   },
 
-  /**
-   * Get cutoff data for a specific college
-   * @param {string|number} collegeCode - College code
-   * @param {Object} filters - Filter options (branch, category, year)
-   * @returns {Promise<Array>} Array of cutoff records
-   */
+  // Get college cutoffs
   getCollegeCutoffs: async (collegeCode, filters = {}) => {
     try {
-      const response = await api.get(`/colleges/${collegeCode}/cutoffs`, {
-        params: filters
-      });
+      const params = new URLSearchParams();
+      if (filters.branch) params.append('branch', filters.branch);
+      if (filters.category) params.append('category', filters.category);
+      if (filters.year) params.append('year', filters.year);
+      
+      const response = await api.get(`/colleges/${collegeCode}/cutoffs?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching college cutoffs:', error);
+      console.error('Error fetching cutoffs:', error);
       throw error;
     }
   },
 
-  /**
-   * Compare multiple colleges for a specific branch and category
-   * @param {Array<string|number>} collegeCodes - Array of college codes
-   * @param {string} branch - Branch name
-   * @param {string} category - Category code
-   * @returns {Promise<Object>} Comparison data grouped by college code
-   */
+  // Compare colleges for specific branch and category
   compareColleges: async (collegeCodes, branch, category) => {
     try {
+      console.log('📊 Comparing colleges:', { collegeCodes, branch, category });
+      
       const response = await api.post('/colleges/compare', {
         college_codes: collegeCodes,
-        branch,
-        category
+        branch: branch,
+        category: category,
       });
+      
+      console.log('📊 Comparison result:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error comparing colleges:', error);
@@ -144,19 +152,15 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get college recommendations based on user rank
-   * @param {number} rank - User's rank
-   * @param {string} category - Category code
-   * @param {Object} preferences - User preferences (city, branch, college_type)
-   * @returns {Promise<Array>} Array of recommended colleges
-   */
+  // Get recommendations based on rank
   getRecommendations: async (rank, category, preferences = {}) => {
     try {
       const response = await api.post('/colleges/recommendations', {
         rank,
         category,
-        ...preferences
+        city: preferences.city,
+        branch: preferences.branch,
+        college_type: preferences.college_type,
       });
       return response.data;
     } catch (error) {
@@ -165,10 +169,7 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get all unique cities from the database
-   * @returns {Promise<Array<string>>} Array of city names
-   */
+  // Get all cities
   getCities: async () => {
     try {
       const response = await api.get('/colleges/cities');
@@ -179,13 +180,15 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get all unique branches from the database
-   * @returns {Promise<Array<string>>} Array of branch names
-   */
-  getBranches: async () => {
+  // Get branches for selected colleges
+  getBranches: async (collegeCodes = []) => {
     try {
-      const response = await api.get('/colleges/branches');
+      const params = new URLSearchParams();
+      if (collegeCodes.length > 0) {
+        params.append('college_codes', collegeCodes.join(','));
+      }
+      
+      const response = await api.get(`/colleges/branches?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching branches:', error);
@@ -193,13 +196,18 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get all unique categories from the database
-   * @returns {Promise<Array<string>>} Array of category codes
-   */
-  getCategories: async () => {
+  // Get categories for selected colleges and branch
+  getCategories: async (collegeCodes = [], branch = null) => {
     try {
-      const response = await api.get('/colleges/categories');
+      const params = new URLSearchParams();
+      if (collegeCodes.length > 0) {
+        params.append('college_codes', collegeCodes.join(','));
+      }
+      if (branch) {
+        params.append('branch', branch);
+      }
+      
+      const response = await api.get(`/colleges/categories?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -207,30 +215,30 @@ export const collegeApi = {
     }
   },
 
-  /**
-   * Get cutoff trends for a college over years
-   * @param {string|number} collegeCode - College code
-   * @param {string} branch - Branch name
-   * @param {string} category - Category code
-   * @returns {Promise<Array>} Array of trend data by year
-   */
-  getCutoffTrends: async (collegeCode, branch, category) => {
+  // Get normalized college types
+  getCollegeTypes: async () => {
     try {
-      const response = await api.get(`/colleges/${collegeCode}/trends`, {
-        params: { branch, category }
-      });
+      const response = await api.get('/colleges/types');
       return response.data;
     } catch (error) {
-      console.error('Error fetching cutoff trends:', error);
+      console.error('Error fetching college types:', error);
       throw error;
     }
   },
 
-  /**
-   * Get statistics for a specific college
-   * @param {string|number} collegeCode - College code
-   * @returns {Promise<Object>} College statistics
-   */
+  // Get cutoff trends
+  getCutoffTrends: async (collegeCode, branch, category) => {
+    try {
+      const params = new URLSearchParams({ branch, category });
+      const response = await api.get(`/colleges/${collegeCode}/trends?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching trends:', error);
+      throw error;
+    }
+  },
+
+  // Get college statistics
   getCollegeStats: async (collegeCode) => {
     try {
       const response = await api.get(`/colleges/${collegeCode}/stats`);
@@ -239,11 +247,30 @@ export const collegeApi = {
       console.error('Error fetching college stats:', error);
       throw error;
     }
-  }
+  },
+
+  // Get trend analysis
+  getTrendAnalysis: async (collegeCode, branch, category) => {
+    try {
+      const params = new URLSearchParams({ branch, category });
+      const response = await api.get(`/colleges/${collegeCode}/trend-analysis?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching trend analysis:', error);
+      throw error;
+    }
+  },
+
+  // Get category info
+  getCategoryInfo: async (categoryCode) => {
+    try {
+      const response = await api.get(`/categories/${categoryCode}/info`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching category info:', error);
+      throw error;
+    }
+  },
 };
 
-// Export the axios instance as well for custom requests if needed
 export default collegeApi;
-
-// Export API base URL for reference
-export { API_BASE_URL };
