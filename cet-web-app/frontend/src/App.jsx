@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './config/firebase';
 
@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import Predictor from './pages/Predictor';
 import CompareColleges from './pages/CompareColleges';
 import CollegeDirectory from './pages/CollegeDirectory';
+import AssistantPage from './pages/AssistantPage';
 
 // Components
 import Login from './components/auth/Login';
@@ -19,6 +20,22 @@ import Signup from './components/auth/Signup';
 import Profile from './components/auth/Profile';
 import ProfileOnboarding from './components/auth/ProfileOnboarding';
 import OptionFormBuilder from './components/optionform/OptionFormBuilder';
+
+// ✅ NEW: Import Resource Vault Component
+import ResourceVault from './components/ResourceVault/ResourceVault';
+
+// Import Chatbot Component
+import Chatbot from './components/Chatbot/Chatbot';
+
+// Create ChatbotWrapper to conditionally show floating chatbot
+function ChatbotWrapper({ user }) {
+  const location = useLocation();
+  
+  // Show floating chatbot on all pages EXCEPT /assistant (dedicated chatbot page)
+  const showFloatingChatbot = user && location.pathname !== '/assistant';
+  
+  return showFloatingChatbot ? <Chatbot /> : null;
+}
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -65,6 +82,10 @@ function App() {
             element={user ? <Profile /> : <Navigate to="/login" replace />}
           />
           <Route
+            path="/assistant"
+            element={user ? <AssistantPage /> : <Navigate to="/login" replace />}
+          />
+          <Route
             path="/predictor"
             element={user ? <Predictor /> : <Navigate to="/login" replace />}
           />
@@ -81,9 +102,18 @@ function App() {
             element={user ? <CollegeDirectory /> : <Navigate to="/login" replace />}
           />
 
+          {/* ✅ NEW: Resource Vault Route */}
+          <Route
+            path="/resources"
+            element={user ? <ResourceVault /> : <Navigate to="/login" replace />}
+          />
+
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+
+        {/* Floating Chatbot - Shows on all pages except /assistant */}
+        <ChatbotWrapper user={user} />
       </ComparisonProvider>
     </Router>
   );

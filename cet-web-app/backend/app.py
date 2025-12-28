@@ -2,14 +2,33 @@
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+from flask_jwt_extended import JWTManager
 from routes.predict_route import predict_bp
 from routes.college_directory import college_directory_bp
 from routes.college_comparison_routes import college_comparison_bp
+from routes.chatbot_route import chatbot_bp
+from routes.resource_vault_route import resource_vault_bp  # ✅ NEW: Resource Vault import
 import pandas as pd
 import os
 
+# Load environment variables
+load_dotenv()
+
 app = Flask(__name__)
 CORS(app)
+
+# ============================================================
+# JWT Configuration
+# ============================================================
+app.config["JWT_SECRET_KEY"] = os.getenv(
+    "JWT_SECRET_KEY", "dev-secret-key-change-this"
+)
+app.config["JWT_TOKEN_LOCATION"] = ["headers"]
+app.config["JWT_HEADER_NAME"] = "Authorization"
+app.config["JWT_HEADER_TYPE"] = "Bearer"
+jwt = JWTManager(app)
+# ============================================================
 
 print("\n" + "="*60)
 print("🚀 Initializing CET Predictor Backend...")
@@ -36,7 +55,9 @@ print("📋 Registering blueprints...")
 app.register_blueprint(predict_bp)
 app.register_blueprint(college_directory_bp, url_prefix='/api')
 app.register_blueprint(college_comparison_bp, url_prefix='/api')
-print("✅ All blueprints registered")
+app.register_blueprint(chatbot_bp, url_prefix='/api/chatbot')
+app.register_blueprint(resource_vault_bp)  # ✅ NEW: Register Resource Vault blueprint
+print("✅ All blueprints registered (including chatbot & resource vault)")
 
 @app.route('/', methods=['GET'])
 def home():
@@ -67,22 +88,54 @@ def home():
         'get_cutoff_trends': 'GET /api/colleges/<code>/trends',
         'get_college_stats': 'GET /api/colleges/<code>/stats',
         'get_trend_analysis': 'GET /api/colleges/<code>/trend-analysis',
-        'get_category_info': 'GET /api/categories/<code>/info'
+        'get_category_info': 'GET /api/categories/<code>/info',
+        
+        # Chatbot endpoints
+        'chatbot_health': 'GET /api/chatbot/health',
+        'chatbot_greeting': 'GET /api/chatbot/greeting',
+        'chatbot_quick_replies': 'GET /api/chatbot/quick-replies',
+        'chatbot_chat': 'POST /api/chatbot/chat',
+        'chatbot_clear': 'POST /api/chatbot/clear',
+        
+        # ✅ NEW: Resource Vault endpoints
+        'resources_health': 'GET /api/resources/health',
+        'resources_summary': 'GET /api/resources/summary',
+        'resources_documents': 'GET /api/resources/documents',
+        'resources_scholarships': 'GET /api/resources/scholarships',
+        'resources_links': 'GET /api/resources/links',
+        'resources_contacts': 'GET /api/resources/contacts',
+        'resources_dates': 'GET /api/resources/dates',
+        'resources_tips': 'GET /api/resources/tips'
     }
     
     return jsonify({
-        'message': '🎓 CET Predictor API',
+        'message': '🎓 CET Predictor API with AI Chatbot & Resource Vault',
         'status': 'running',
-        'version': '2.0.0 (Enhanced with Normalization)',
+        'version': '2.2.0 (Enhanced with Resource Vault)',
         'endpoints': endpoints
     })
 
 @app.route('/api/health', methods=['GET'])
 def health():
+    # Check chatbot service health
+    chatbot_status = 'unknown'
+    try:
+        gemini_key = os.getenv('GEMINI_API_KEY')
+        chatbot_status = 'configured' if gemini_key else 'not_configured'
+    except:
+        chatbot_status = 'error'
+    
     return jsonify({
         'status': 'healthy',
         'message': 'Backend server is operational',
-        'version': '2.0.0'
+        'version': '2.2.0',
+        'services': {
+            'prediction': 'operational',
+            'college_directory': 'operational',
+            'college_comparison': 'operational',
+            'chatbot': chatbot_status,
+            'resource_vault': 'operational'  # ✅ NEW
+        }
     })
 
 @app.route('/api/test-blueprint', methods=['GET'])
@@ -93,7 +146,12 @@ def test_blueprint():
         'endpoints': [
             '/api/colleges/directory',
             '/api/colleges/filter',
-            '/api/colleges/stats'
+            '/api/colleges/stats',
+            '/api/chatbot/health',
+            '/api/chatbot/chat',
+            '/api/resources/documents',  # ✅ NEW
+            '/api/resources/scholarships',  # ✅ NEW
+            '/api/resources/summary'  # ✅ NEW
         ]
     })
 
@@ -187,16 +245,11 @@ def directory_stats():
 
 # ============================================================
 # LEGACY ENDPOINTS (For backwards compatibility)
-# These endpoints use the old comparison_df approach
-# New code should use the enhanced blueprint endpoints
 # ============================================================
 
 @app.route('/api/colleges/branches/legacy', methods=['GET'])
 def get_branches_legacy():
-    """
-    LEGACY: Get all unique branches from comparison_df
-    Use /api/colleges/branches instead (from blueprint)
-    """
+    """LEGACY: Get all unique branches from comparison_df"""
     try:
         if comparison_df is None:
             return jsonify({
@@ -204,7 +257,6 @@ def get_branches_legacy():
                 'message': 'The comparison dataset is not available'
             }), 500
         
-        # Get unique branches
         if 'branch_name' in comparison_df.columns:
             branches = comparison_df['branch_name'].dropna().unique().tolist()
         elif 'Branch' in comparison_df.columns:
@@ -234,10 +286,7 @@ def get_branches_legacy():
 
 @app.route('/api/colleges/categories/legacy', methods=['GET'])
 def get_categories_legacy():
-    """
-    LEGACY: Get all unique categories from comparison_df
-    Use /api/colleges/categories instead (from blueprint)
-    """
+    """LEGACY: Get all unique categories from comparison_df"""
     try:
         if comparison_df is None:
             return jsonify({
@@ -245,7 +294,6 @@ def get_categories_legacy():
                 'message': 'The comparison dataset is not available'
             }), 500
         
-        # Get unique categories
         if 'category' in comparison_df.columns:
             categories = comparison_df['category'].dropna().unique().tolist()
         elif 'Category' in comparison_df.columns:
@@ -273,10 +321,7 @@ def get_categories_legacy():
 
 @app.route('/api/colleges/options', methods=['POST'])
 def get_college_options():
-    """
-    LEGACY: Get available branches and categories for selected colleges
-    Request body: { "college_codes": ["1234", "5678"] }
-    """
+    """LEGACY: Get available branches and categories for selected colleges"""
     try:
         if comparison_df is None:
             return jsonify({
@@ -291,7 +336,6 @@ def get_college_options():
                 'error': 'No college codes provided'
             }), 400
         
-        # Determine the college code column name
         college_code_col = None
         for col in ['college_code', 'College_Code', 'CollegeCode']:
             if col in comparison_df.columns:
@@ -304,16 +348,13 @@ def get_college_options():
                 'available_columns': list(comparison_df.columns)
             }), 500
         
-        # Convert college_codes to integers for matching
         try:
             college_codes = [int(code) for code in college_codes]
         except:
             pass
         
-        # Filter dataframe for selected colleges
         filtered_df = comparison_df[comparison_df[college_code_col].isin(college_codes)]
         
-        # Get unique branches and categories for these colleges
         branch_col = None
         for col in ['branch_name', 'Branch', 'branch']:
             if col in filtered_df.columns:
@@ -355,7 +396,8 @@ def get_college_options():
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🚀 CET College Predictor - Enhanced Backend Server v2.0")
+    print("🚀 CET College Predictor - Enhanced Backend Server v2.2")
+    print("   with AI-Powered Chatbot 🤖 & Resource Vault 📚")
     print("="*60)
     print("📍 Server: http://localhost:5000")
     print("📊 API Docs: http://localhost:5000/")
@@ -366,14 +408,59 @@ if __name__ == '__main__':
     print("  📖 Directory: GET /api/colleges/directory")
     print("  🔍 Search: GET /api/colleges/search")
     print("  🔄 Compare: POST /api/colleges/compare")
-    print("  🌿 Branches: GET /api/colleges/branches (normalized)")
+    print("  🌿 Branches: GET /api/colleges/branches")
     print("  📋 Categories: GET /api/colleges/categories")
-    print("  🏢 Types: GET /api/colleges/types (normalized)")
+    print("  🏢 Types: GET /api/colleges/types")
     print("  📈 Trends: GET /api/colleges/<code>/trends")
     print("  📊 Stats: GET /api/colleges/<code>/stats")
+    print("\n  🤖 Chatbot Endpoints:")
+    print("  ✅ Health: GET /api/chatbot/health")
+    print("  👋 Greeting: GET /api/chatbot/greeting")
+    print("  ⚡ Quick Replies: GET /api/chatbot/quick-replies")
+    print("  💬 Chat: POST /api/chatbot/chat")
+    print("  🔄 Clear: POST /api/chatbot/clear")
+    print("\n  📚 Resource Vault Endpoints:")
+    print("  ✅ Health: GET /api/resources/health")
+    print("  📊 Summary: GET /api/resources/summary")
+    print("  📄 Documents: GET /api/resources/documents")
+    print("  💰 Scholarships: GET /api/resources/scholarships")
+    print("  🔗 Links: GET /api/resources/links")
+    print("  📞 Contacts: GET /api/resources/contacts")
+    print("  📅 Dates: GET /api/resources/dates")
+    print("  💡 Tips: GET /api/resources/tips")
     print("="*60)
     
-    # Test if college directory file exists
+    # Check Gemini API configuration
+    print("\n🤖 Chatbot Configuration:")
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    if gemini_key:
+        print(f"  ✅ Gemini API Key: Configured (starts with {gemini_key[:10]}...)")
+    else:
+        print("  ⚠️  Gemini API Key: Not configured")
+        print("     Add GEMINI_API_KEY to backend/.env file")
+    
+    # Check JWT configuration
+    print("\n🔐 JWT Configuration:")
+    jwt_key = os.getenv('JWT_SECRET_KEY')
+    if jwt_key:
+        print(f"  ✅ JWT Secret Key: Configured")
+    else:
+        print("  ⚠️  JWT Secret Key: Using default (change in production)")
+    
+    # Check Resource Vault service
+    print("\n📚 Resource Vault Configuration:")
+    try:
+        from services.resource_service import resource_service
+        summary = resource_service.get_dashboard_summary()
+        print(f"  ✅ Resource Service: Loaded")
+        print(f"     📄 Documents: {summary['total_documents']}")
+        print(f"     💰 Scholarships: {summary['total_scholarships']}")
+        print(f"     📅 Upcoming Dates: {summary['upcoming_dates']}")
+        print(f"     💡 Tips: {summary['total_tips']}")
+    except Exception as e:
+        print(f"  ⚠️  Resource Service: Error loading - {str(e)}")
+    
+    # Test data files
     dir_path = 'backend/data/Colleges_URL.xlsx'
     abs_path = 'D:/CET_Prediction/cet-web-app/backend/data/Colleges_URL.xlsx'
     
@@ -384,9 +471,7 @@ if __name__ == '__main__':
         print(f"  ✅ College directory: {abs_path}")
     else:
         print(f"  ⚠️  College directory not found")
-        print(f"     Expected: {dir_path}")
     
-    # Check comparison data file
     comparison_csv = 'data/merged_cutoff_2021_2025.csv'
     if os.path.exists(comparison_csv):
         print(f"  ✅ Comparison data: {comparison_csv}")
@@ -394,7 +479,6 @@ if __name__ == '__main__':
             test_df = pd.read_csv(comparison_csv)
             print(f"     📊 Records: {len(test_df):,}")
             
-            # Check for branch column
             branch_col = None
             for col in ['branch_name', 'Branch', 'branch']:
                 if col in test_df.columns:
@@ -403,7 +487,6 @@ if __name__ == '__main__':
             if branch_col:
                 print(f"     🌿 Branches: {test_df[branch_col].nunique()}")
             
-            # Check for category column
             cat_col = None
             for col in ['category', 'Category']:
                 if col in test_df.columns:
@@ -412,7 +495,6 @@ if __name__ == '__main__':
             if cat_col:
                 print(f"     📋 Categories: {test_df[cat_col].nunique()}")
             
-            # Check for year column
             if 'year' in test_df.columns:
                 years = sorted(test_df['year'].unique())
                 print(f"     📅 Years: {', '.join(map(str, years))}")
@@ -421,27 +503,6 @@ if __name__ == '__main__':
             print(f"     ⚠️  Error reading: {str(e)}")
     else:
         print(f"  ⚠️  Comparison data not found")
-        print(f"     Expected: {comparison_csv}")
-    
-    # Check for individual year files
-    cutoff_trends_dir = 'data/cutoff_trends'
-    if os.path.exists(cutoff_trends_dir):
-        year_files = [f for f in os.listdir(cutoff_trends_dir) if f.endswith('.csv')]
-        if year_files:
-            print(f"  ✅ Individual year files: {len(year_files)} files")
-            print(f"     Files: {', '.join(sorted(year_files))}")
-        else:
-            print(f"  ⚠️  No individual year CSV files found in {cutoff_trends_dir}")
-    else:
-        print(f"  ⚠️  Cutoff trends directory not found: {cutoff_trends_dir}")
-    
-    # Check for college comparator module
-    utils_path = 'utils/college_comparator.py'
-    if os.path.exists(utils_path):
-        print(f"  ✅ College comparator module: {utils_path}")
-    else:
-        print(f"  ⚠️  College comparator module not found: {utils_path}")
-        print(f"     Create utils/ folder and add college_comparator.py")
     
     print("\n" + "="*60)
     print("✅ Server starting...")

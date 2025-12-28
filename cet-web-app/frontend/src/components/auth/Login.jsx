@@ -18,13 +18,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // -------------------- CHECK ONBOARDING --------------------
   const checkOnboardingStatus = async (uid, userEmail, userName) => {
     const userDocRef = doc(db, 'users', uid);
     const docSnap = await getDoc(userDocRef);
 
     if (!docSnap.exists()) {
-      // First-time login: create a user document with default values
       await setDoc(userDocRef, {
         fullName: userName || '',
         email: userEmail || '',
@@ -43,7 +41,6 @@ export default function Login() {
     return data.onboardingComplete ? '/dashboard' : '/onboarding';
   };
 
-  // -------------------- EMAIL/PASSWORD LOGIN --------------------
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -71,7 +68,6 @@ export default function Login() {
     }
   };
 
-  // -------------------- GOOGLE LOGIN --------------------
   const handleGoogleLogin = async () => {
     setLoading(true);
     const provider = new GoogleAuthProvider();
@@ -91,36 +87,39 @@ export default function Login() {
     }
   };
 
-  // -------------------- RENDER --------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <button
-          onClick={() => navigate('/')}
-          className="mb-6 text-gray-600 hover:text-gray-800 flex items-center gap-2 transition"
-        >
-          ← Back to Home
-        </button>
+        {/* Logo at Top Center */}
+        <div className="flex justify-center mb-8">
+          <div className="cursor-pointer" onClick={() => navigate('/')}>
+            <img 
+              src="/logo.png" 
+              alt="CET Insights" 
+              className="h-20 w-auto object-contain"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = '/logo.svg';
+              }}
+            />
+          </div>
+        </div>
 
-        <div className="bg-white rounded-3xl shadow-2xl p-8 backdrop-blur-lg bg-opacity-95">
+        {/* Main Login Card */}
+        <div className="bg-white rounded-2xl shadow-lg p-8">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 transform rotate-3 hover:rotate-6 transition-transform">
-              <span className="text-3xl">🎓</span>
-            </div>
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              Welcome Back
-            </h2>
-            <p className="text-gray-600 mt-2">Sign in to access CETInsights</p>
+            <h2 className="text-2xl font-bold text-gray-900">Welcome Back</h2>
+            <p className="text-gray-600 mt-2">Sign in to your account</p>
           </div>
 
-          {/* Google Login */}
+          {/* Google Login Button */}
           <button
             onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full bg-white border-2 border-gray-200 text-gray-700 py-3 px-4 rounded-xl font-semibold hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-3 mb-6 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-white border border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-50 transition-all flex items-center justify-center gap-3 mb-6 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Chrome className="w-5 h-5 text-red-500" />
+            <Chrome className="w-5 h-5" />
             Continue with Google
           </button>
 
@@ -135,14 +134,13 @@ export default function Login() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
               <div className="relative">
-                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your.email@example.com"
                   required
-                  className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
                 />
               </div>
             </div>
@@ -150,14 +148,13 @@ export default function Login() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
-                  className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition pr-12"
                 />
                 <button
                   type="button"
@@ -170,7 +167,7 @@ export default function Login() {
             </div>
 
             <div className="text-right">
-              <button type="button" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+              <button type="button" className="text-sm text-blue-600 hover:text-blue-700">
                 Forgot Password?
               </button>
             </div>
@@ -178,7 +175,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 px-4 rounded-xl font-semibold hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>
@@ -196,14 +193,14 @@ export default function Login() {
 
           <p className="text-center text-gray-600 mt-6">
             Don't have an account?{' '}
-            <Link to="/signup" className="text-blue-600 hover:text-blue-700 font-semibold">
+            <Link to="/signup" className="text-blue-600 hover:text-blue-700 font-medium">
               Sign Up
             </Link>
           </p>
         </div>
 
-        <div className="text-center mt-6 text-sm text-gray-600">
-          🔒 Secured by Firebase Authentication
+        <div className="text-center mt-6 text-sm text-gray-500">
+          Secured by Firebase Authentication
         </div>
       </div>
     </div>

@@ -1,0 +1,25 @@
+# Environment files
+backend/.env
+frontend/.env
+.env
+
+# Python
+backend/__pycache__/
+backend/*.pyc
+backend/venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

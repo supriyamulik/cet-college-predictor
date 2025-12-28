@@ -297,7 +297,7 @@ export default function Predictor() {
             </button>
             <div className="flex-1">
               <h1 className="text-2xl font-bold text-gray-900">
-                College Predictor
+                SmartPredict
               </h1>
               <p className="text-sm text-gray-600">Find the best colleges matching your CET performance</p>
             </div>
